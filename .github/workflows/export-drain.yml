@@ -1,0 +1,27 @@
+name: Drain sheet export outbox
+
+on:
+  schedule:
+    # Vercel Hobby cron is daily-only; GitHub Actions is the free way to
+    # get the 15-min cadence ARCHITECTURE.md §8 calls for. Schedules can
+    # drift a few minutes under load — accepted trade-off, see §9.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/export/drain
+        run: |
+          status=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${APP_URL}/api/export/drain" \
+            -H "Authorization: Bearer ${CRON_SECRET}")
+          cat /tmp/response.json
+          if [ "$status" -ge 300 ]; then
+            echo "drain failed with status $status"
+            exit 1
+          fi
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
