@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api/auth";
 import { withErrorHandling } from "@/lib/api/errors";
 import { getEntries, upsertEntries } from "@/lib/api/entries";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/api/rate-limit";
 import { entriesBatchSchema, entriesQuerySchema } from "@/lib/api/schemas";
 
 export const GET = withErrorHandling(async (request) => {
@@ -18,6 +19,7 @@ export const GET = withErrorHandling(async (request) => {
 
 export const PUT = withErrorHandling(async (request) => {
   const user = await requireUser();
+  checkRateLimit(`entries:write:${user.id}`, RATE_LIMITS.entriesWrite);
   const body = entriesBatchSchema.parse(await request.json());
 
   const { conflicts } = await upsertEntries(user.id, body);

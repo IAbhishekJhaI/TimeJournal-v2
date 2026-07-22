@@ -63,3 +63,44 @@ export const quicklogParseSchema = z.object({
   // if omitted, resolved against the user's timezone.
   day: isoDate.optional(),
 });
+
+/** A string that names a valid IANA timezone (e.g. "Asia/Kolkata"). */
+const ianaTimezone = z.string().refine(
+  (tz) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "expected a valid IANA timezone, e.g. Asia/Kolkata" },
+);
+
+export const meUpdateSchema = z
+  .object({
+    displayName: z.string().min(1).max(100).nullable().optional(),
+    timezone: ianaTimezone.optional(),
+    // A Google Sheets spreadsheet id (the long token from the sheet URL), or
+    // null to disconnect the export target.
+    sheetSpreadsheetId: z.string().min(1).max(200).nullable().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "no fields to update",
+  });
+
+/**
+ * Batch reorder / re-parent of categories. Each item sets a category's
+ * sort_order and optionally its parent (null = move to top level). Applied
+ * in one transaction so a drag is a single request (IMPLEMENTATION_PLAN.md §2.3).
+ */
+export const categoryReorderSchema = z
+  .array(
+    z.object({
+      id: uuid,
+      sortOrder: z.number().int(),
+      parentId: uuid.nullable().optional(),
+    }),
+  )
+  .min(1)
+  .max(500);

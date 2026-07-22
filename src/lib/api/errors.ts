@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { reportError } from "./report";
 
 export class ApiError extends Error {
   constructor(
@@ -27,7 +28,7 @@ export function withErrorHandling(
           { status: 400 },
         );
       }
-      console.error(error);
+      reportError(error, { url: request.url, method: request.method });
       return NextResponse.json({ error: "internal error" }, { status: 500 });
     }
   };

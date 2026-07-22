@@ -43,8 +43,12 @@ function toMinutesSinceMidnight(token: TimeToken): number {
   return hour * 60 + token.minute;
 }
 
+// Hour token is 1-2 digits with optional ":mm" (9, 11, 9:30) OR a 3-4 digit
+// compact time (930, 1130) that parseTimeToken splits into H(H)+MM. The compact
+// form is a documented quick-log format ("930-11 Fb"); keeping the token width
+// at \d{1,2} here silently dropped it despite parseTimeToken supporting it.
 const RANGE_RE =
-  /(\d{1,2}(?::\d{2})?)\s*(am|pm)?\s*(?:-|–|—|to)\s*(\d{1,2}(?::\d{2})?)\s*(am|pm)?/i;
+  /(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\s*(am|pm)?\s*(?:-|–|—|to)\s*(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\s*(am|pm)?/i;
 
 export interface ParsedTimeRange {
   startMinutes: number;

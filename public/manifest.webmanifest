@@ -1,0 +1,10 @@
+{
+  "name": "TimeJournal",
+  "short_name": "TimeJournal",
+  "description": "Log your time, 15 minutes at a time.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafaf9",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait"
+}

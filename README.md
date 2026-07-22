@@ -1,10 +1,15 @@
-# TimeJournal v2 — backend
+# TimeJournal v2
 
-Backend implementation of the [system HLD](../TimeJournal/ARCHITECTURE.md) for TimeJournal:
-Next.js Route Handlers on Vercel, Postgres + Auth on Supabase, Drizzle ORM,
-one-way eventually-consistent export to the legacy Google Sheet. No
-frontend yet (§11 Phase 1–2 of the migration plan) — this repo is
-API-only; a UI gets built on top of it later.
+Implementation of the [system HLD](./ARCHITECTURE.md) for TimeJournal:
+Next.js (App Router) on Vercel, Postgres + Auth on Supabase, Drizzle ORM,
+one-way eventually-consistent export to the legacy Google Sheet.
+
+The API layer is complete (Phase 1–2.5). The **mobile-first frontend** is now
+in progress (Phase 3): magic-link login, the authenticated app shell, and the
+journal timeline (tap/drag to paint 15-min slots) are in. Dashboards, category
+editor, quick-log, and PWA/offline are Phase 4 (see
+[FRONTEND_PLAN.md](./FRONTEND_PLAN.md) and
+[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)).
 
 The old Vite app in [`../TimeJournal`](../TimeJournal) keeps working
 throughout — nothing here touches it.
@@ -84,11 +89,21 @@ To wire up the GitHub Actions workflow, set two repo secrets:
 ```bash
 npm run dev            # start the dev server
 npm run lint            # eslint
-npx tsc --noEmit         # typecheck
+npm run typecheck       # tsc --noEmit
+npm run test            # vitest (watch)
+npm run test:run        # vitest (once) — what CI runs
 npm run db:generate     # after changing src/db/schema.ts, generate a new migration
 npm run db:migrate      # apply pending migrations
 npm run db:studio       # browse the DB with Drizzle Studio
 ```
+
+CI (`.github/workflows/ci.yml`) runs typecheck + lint + tests on every PR. The
+unit suite covers the pure logic (quick-log parser, date ranges, timezone,
+sheet formatting, category-cycle detection, rate limiter); DB integration tests
+in `tests/integration` self-skip unless `DATABASE_URL` + `TEST_USER_ID` +
+`TEST_CATEGORY_ID` are set. The API contract is documented in
+[`docs/API.md`](./docs/API.md) with types in `src/lib/api/types.ts`; the
+data-access decision is [ADR 0001](./docs/adr/0001-api-only-data-access.md).
 
 Requires Node 20+; Node 22+ is recommended (`@supabase/supabase-js` warns
 on 20 at build time — harmless for now, worth upgrading before it becomes
@@ -108,8 +123,29 @@ a hard requirement).
 - Signup is invite-only, enforced by a DB trigger (`0002_signup_trigger.sql`), not just app code.
 - See [`../TimeJournal/ARCHITECTURE.md` §10](../TimeJournal/ARCHITECTURE.md#10-security-notes--act-now-independent-of-the-rebuild) — the legacy repo has an uncommitted-but-present `credentials.json` on disk; revoke that service account key and delete the file before the old repo is ever pushed/shared, independent of this rewrite.
 
+## Frontend (Phase 3, in progress)
+
+Mobile-first web app under `src/app` — a route group `(app)` guarded by
+`requireUserOrRedirect()`, with a bottom-tab shell (`src/components/AppShell.tsx`).
+
+- `/login` — magic-link sign-in (`src/app/login`); completes via the existing `/auth/callback`.
+- `/` — the journal: a vertical day timeline where you tap or drag to paint
+  15-min slots, a brush bar with recent categories, and a category bottom sheet
+  (`src/components/journal/*`). Writes are optimistic via TanStack Query
+  (`src/lib/client/hooks.ts`) against `PUT /api/entries`.
+- `/settings` — profile + sign-out (functional); `/insights`, `/categories` are Phase 4 placeholders.
+
+After pulling these changes, install the new deps before running:
+
+```bash
+npm install            # adds react, react-dom, @tanstack/react-query, lucide-react
+npm run dev
+```
+
 ## What's not here yet
 
-- Frontend (journal grid, dashboards, category editor) — Phase 3+ of the migration plan.
+- Dashboards, category editor, quick-log UI, drag-fill polish, PWA/offline — Phase 4.
+- IndexedDB durability for the offline write queue (today's optimistic writes are in-memory via TanStack Query) — Phase 4.6.
+- A wired test database for the integration suite (self-skips until then).
 - `saved_queries` import from the sheet (this export only has `Days` + `Categories` tabs; no `Queries` tab was present to import from).
 - Materialized daily-totals view (§9: revisit only past ~1M rows; not needed at this scale).

@@ -5,11 +5,13 @@ import { categories, users } from "@/db/schema";
 import { requireUser } from "@/lib/api/auth";
 import { withErrorHandling } from "@/lib/api/errors";
 import { matchCategory, minutesToSlotRange, parseTimeRange } from "@/lib/api/quicklog-parser";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/api/rate-limit";
 import { quicklogParseSchema } from "@/lib/api/schemas";
 import { nowInTimezone } from "@/lib/timezone";
 
 export const POST = withErrorHandling(async (request) => {
   const user = await requireUser();
+  checkRateLimit(`quicklog:parse:${user.id}`, RATE_LIMITS.quicklogParse);
   const { text, day: requestedDay } = quicklogParseSchema.parse(await request.json());
 
   const [profile] = await db
