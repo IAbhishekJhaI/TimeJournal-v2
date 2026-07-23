@@ -2,11 +2,12 @@
 
 import type React from "react";
 import { useEffect, useState } from "react";
-import { Download, LogOut, Mail, RefreshCw } from "lucide-react";
+import { Download, LogOut, Mail, RefreshCw, Upload } from "lucide-react";
 import { api } from "@/lib/client/api";
 import {
   useAddInvite,
   useExportNow,
+  useImportXlsx,
   useInviteStats,
   useProfile,
   useUpdateProfile,
@@ -74,6 +75,8 @@ export default function SettingsPage() {
 
       <InvitesSection />
 
+      <ImportSection />
+
       <DataSection />
 
       <form action="/auth/signout" method="post" style={{ marginTop: 8 }}>
@@ -139,6 +142,70 @@ function InvitesSection() {
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 0" }} className="tabular">
           {stats.total} invited · {stats.redeemed} joined
         </p>
+      ) : null}
+    </Section>
+  );
+}
+
+function ImportSection() {
+  const importXlsx = useImportXlsx();
+  const [file, setFile] = useState<File | null>(null);
+  const result = importXlsx.data;
+
+  return (
+    <Section title="Import from Google Sheet">
+      <p style={muted}>
+        In Google Sheets choose <strong>File → Download → Microsoft Excel (.xlsx)</strong>, then upload
+        it here. Reads the <code>Categories</code> and <code>Days</code> tabs, builds your category
+        tree, and imports every logged slot (validating counts against the sheet&apos;s own totals).
+        Best run on a fresh account — a category code that already exists will clash.
+      </p>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ ...secondaryBtn, cursor: "pointer" }}>
+          <Upload size={15} /> {file ? "Change file" : "Choose .xlsx"}
+          <input
+            type="file"
+            accept=".xlsx"
+            style={{ display: "none" }}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        {file ? <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{file.name}</span> : null}
+        <button
+          onClick={() => file && importXlsx.mutate(file)}
+          disabled={!file || importXlsx.isPending}
+          style={{ ...primaryBtn, height: 38, opacity: !file || importXlsx.isPending ? 0.5 : 1 }}
+        >
+          {importXlsx.isPending ? "Importing…" : "Import"}
+        </button>
+      </div>
+
+      {importXlsx.isError ? (
+        <p style={{ fontSize: 13, color: "var(--danger)", margin: "8px 0 0" }}>
+          {(importXlsx.error as Error).message}
+        </p>
+      ) : null}
+
+      {result ? (
+        <div style={{ marginTop: 8, fontSize: 13, display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ color: "var(--success)" }}>
+            Imported {result.categoriesCreated} categories and {result.entriesCreated} slots.
+          </span>
+          {result.unknownCodes.length > 0 ? (
+            <span style={{ color: "var(--warning)" }}>
+              Skipped {result.unknownCodes.length} unknown code(s): {result.unknownCodes.join(", ")}
+            </span>
+          ) : null}
+          {result.validationMismatches.length > 0 ? (
+            <span style={{ color: "var(--warning)" }}>
+              {result.validationMismatches.length} category total(s) didn&apos;t match the sheet — worth a look.
+            </span>
+          ) : null}
+          <span style={{ color: "var(--text-muted)" }}>
+            Colours use a placeholder palette — recolour in the Categories editor.
+          </span>
+        </div>
       ) : null}
     </Section>
   );

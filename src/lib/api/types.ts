@@ -67,6 +67,14 @@ export interface Invite {
   redeemedAt: string | null;
 }
 
+export interface ImportResult {
+  categoriesCreated: number;
+  entriesCreated: number;
+  unknownCodes: string[];
+  caseCorrections: { from: string; to: string }[];
+  validationMismatches: { code: string; expected: number; actual: number }[];
+}
+
 export type { Profile, GroupBy, SummaryBucket, UpsertConflict };
 
 // ---- Response envelopes ----

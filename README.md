@@ -133,14 +133,13 @@ existing sheet, below).
 
 ## Importing an existing sheet
 
-```bash
-npm run import:xlsx -- "/path/to/exported.xlsx" <your-user-id>
-```
+Two ways — both use the same tested importer, which reads the `Categories` and
+`Days` tabs, builds the category tree, imports every logged slot, and validates
+each code's count against the sheet's own totals (refusing to write if a code is
+reused across two categories, and listing rather than inventing unknown codes):
 
-Reads the `Categories` and `Days` tabs, builds the category tree, imports every
-logged slot, and validates each code's count against the sheet's own totals. It
-refuses to write if a code is reused across two categories, and lists (never
-silently invents) codes present in `Days` but missing from `Categories`.
+- **In-app (recommended):** in Google Sheets, `File → Download → Microsoft Excel (.xlsx)`, then upload it in **Settings → Import from Google Sheet**.
+- **CLI:** `npm run import:xlsx -- "/path/to/exported.xlsx" <your-user-id>`
 
 ## Sheets export
 

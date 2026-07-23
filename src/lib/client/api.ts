@@ -8,6 +8,7 @@ import type {
   CategoryResponse,
   CategoryUpdate,
   DrainResponse,
+  ImportResult,
   EntriesBatch,
   EntriesPutResponse,
   EntriesResponse,
@@ -67,6 +68,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email }),
     }).then((r) => r.added),
+
+  // Multipart upload — can't use apiFetch (must not set a JSON content-type;
+  // the browser sets the multipart boundary itself).
+  importXlsx: async (file: File): Promise<ImportResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/import/xlsx", { method: "POST", body: form });
+    if (!res.ok) {
+      let message = `import failed (${res.status})`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error */
+      }
+      throw new ApiClientError(res.status, message);
+    }
+    return (await res.json()) as ImportResult;
+  },
 
   getCategories: (includeArchived = false): Promise<Category[]> =>
     apiFetch<CategoriesResponse>(

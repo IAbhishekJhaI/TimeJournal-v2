@@ -31,6 +31,15 @@ export function useExportNow() {
   return useMutation({ mutationFn: () => api.exportNow() });
 }
 
+export function useImportXlsx() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.importXlsx(file),
+    // A bulk import touches categories + entries broadly; refresh everything.
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
+
 export function useInviteStats() {
   return useQuery({ queryKey: ["invites"], queryFn: api.getInviteStats });
 }
