@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LayoutGrid, ListTree, Settings, Zap } from "lucide-react";
+import { BarChart3, LayoutGrid, ListTree, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
@@ -43,32 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           zIndex: 40,
         }}
       >
-        {TABS.slice(0, 2).map((t) => (
-          <NavItem key={t.href} {...t} active={isActive(pathname, t.href)} />
-        ))}
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 64 }}>
-          <Link
-            href="/"
-            aria-label="Quick log"
-            style={{
-              width: 48,
-              height: 48,
-              marginTop: -18,
-              borderRadius: "50%",
-              background: "var(--accent)",
-              color: "var(--accent-contrast)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "3px solid var(--surface)",
-            }}
-          >
-            <Zap size={22} />
-          </Link>
-        </div>
-
-        {TABS.slice(2).map((t) => (
+        {TABS.map((t) => (
           <NavItem key={t.href} {...t} active={isActive(pathname, t.href)} />
         ))}
       </nav>

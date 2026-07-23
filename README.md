@@ -168,10 +168,31 @@ move a cursor, shift+arrows select a range, type a category code + Enter to fill
 Backspace clears, Escape deselects, double-click opens the note sheet. Mouse
 click/drag paints with the brush. Switched via `useMediaQuery`.
 
+Category selection (brush model): the app remembers a "brush" — the last-used
+category — persisted in `localStorage`. Tapping a slot paints with the brush
+(tap again with the same category to clear); drag fills a range.
+
+- Mobile: a circular button floats at center-bottom (above the nav) showing the
+  current brush. Tap it → floating cascade picker (`CategoryPicker.tsx`): main
+  categories → tap one → adjacent subcategory column (parent shown as "general")
+  → select → picker closes and that becomes the brush. Includes an Eraser and a
+  Recent group.
+- Desktop (≥1024px): a persistent category list sits to the right of the grid
+  (`DesktopPalette.tsx`); click to set the brush. Keyboard code-entry still
+  direct-fills; Backspace clears.
+
+The old bottom brush bar / bottom sheet and the nav's center button were removed.
+
+Rolling 24h view: by default the journal shows the last 24 hours ending at the
+top of the current hour (so the current hour is the bottom row), spanning across
+midnight. Cells are `(day, slot)` pairs (`src/lib/journalWindow.ts`); the grid
+fetches both days it touches via two per-day queries (so the per-day optimistic
+cache/invalidation still applies). The calendar pins a specific past day
+(00:00–24:00); a "Live" button returns to the rolling window.
+
 Calendar: the journal header (date + calendar icon) opens a month picker
-(`src/components/journal/CalendarSheet.tsx`) to jump to any day. It fetches the
-visible month's entries and shows a per-day density dot (logged-slot count);
-"Jump to today" resets. This replaced the prev/next-day arrows.
+(`src/components/journal/CalendarSheet.tsx`) with a per-day density dot; picking
+today returns to Live, picking any other day pins it.
 
 Undo/redo: every journal edit (paint, drag-fill, note, clear) goes through a
 single `commit()` that records the affected slots' state before (for undo) and

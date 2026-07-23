@@ -2,18 +2,22 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, CloudOff, RefreshCw, Redo2, Undo2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, CloudOff, Eraser, Palette, RadioTower, RefreshCw, Redo2, Undo2 } from "lucide-react";
 import { useCategories, useEntries, useProfile } from "@/lib/client/hooks";
 import { useSync } from "@/lib/client/sync";
 import { useMediaQuery } from "@/lib/client/useMediaQuery";
 import type { Category, TimeEntry } from "@/lib/api/types";
 import { currentDayAndSlot, prettyDay, SLOTS_PER_DAY } from "@/lib/slots";
-import { BrushBar } from "./BrushBar";
+import { cellKey, dayWindow, liveWindow } from "@/lib/journalWindow";
+import { onColor } from "@/lib/color";
 import { CalendarSheet } from "./CalendarSheet";
-import { CategorySheet } from "./CategorySheet";
+import { CategoryPicker } from "./CategoryPicker";
 import { DesktopGrid } from "./DesktopGrid";
+import { DesktopPalette, type Brush } from "./DesktopPalette";
 import { SlotSheet } from "./SlotSheet";
 import { Timeline } from "./Timeline";
+
+type View = { mode: "live" } | { mode: "day"; day: string };
 
 export function JournalView() {
   const { data: profile } = useProfile();
@@ -25,38 +29,56 @@ export function JournalView() {
     return () => clearInterval(id);
   }, []);
 
-  // Everything below depends on the current time/date, which differs between
-  // the server render and the browser. Render nothing until mounted so the
-  // server and first client render agree (no hydration mismatch).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const today = currentDayAndSlot(timezone, now);
-  const [day, setDay] = useState<string | null>(null);
-  // Land on "today" (in the user's tz) once the profile timezone is known.
-  useEffect(() => {
-    setDay((d) => d ?? today.day);
-  }, [today.day]);
 
-  const activeDay = day ?? today.day;
-  const currentSlot = activeDay === today.day ? today.slot : null;
+  // Default view is the rolling last-24-hours window; the calendar can pin a day.
+  const [view, setView] = useState<View>({ mode: "live" });
+  const win = useMemo(
+    () =>
+      view.mode === "live"
+        ? liveWindow(timezone, now)
+        : dayWindow(view.day, view.day === today.day ? today.slot : null),
+    [view, timezone, now, today.day, today.slot],
+  );
+  const cells = win.cells;
+  const currentIndex = win.currentIndex;
+  const fromDay = cells[0].day;
+  const toDay = cells[95].day;
+  const viewKey = view.mode === "live" ? "live" : view.day;
 
   const { data: categories } = useCategories();
-  const { data: entries, isLoading } = useEntries(activeDay);
+  // Two per-day queries (deduped when equal) so the existing per-day optimistic
+  // cache + invalidation in sync.tsx keep working across the window's midnight.
+  const q1 = useEntries(fromDay);
+  const q2 = useEntries(toDay);
+  const isLoading = q1.isLoading || q2.isLoading;
   const { enqueue, online, pendingCount, syncing, conflicts, clearConflict, clearConflicts } =
     useSync();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  const [brushId, setBrushId] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [noteSlot, setNoteSlot] = useState<number | null>(null);
+  const [noteIndex, setNoteIndex] = useState<number | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // The remembered "brush": the category new taps paint with. "erase" clears.
+  const [brush, setBrushState] = useState<Brush>(null);
+  const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
 
-  // Undo/redo for this day. Each action records the slots' state BEFORE (for
-  // undo) and the writes it applied AFTER (for redo); both replay through the
-  // queue. Stacks reset when the viewed day changes.
-  type SlotSnapshot = { slot: number; prev: { categoryId: string; note: string | null } | null };
-  type WriteItem = { slot: number; categoryId: string | null; note: string | null };
+  useEffect(() => {
+    const v = localStorage.getItem("tj.brush");
+    if (v) setBrushState(v as Brush);
+  }, []);
+  const setBrush = (b: Brush) => {
+    setBrushState(b);
+    if (b) localStorage.setItem("tj.brush", b);
+    else localStorage.removeItem("tj.brush");
+  };
+
+  // Undo/redo. Each action records the cells' state BEFORE (undo) and the writes
+  // it applied AFTER (redo); both replay through the queue, grouped by day.
+  type SlotSnapshot = { day: string; slot: number; prev: { categoryId: string; note: string | null } | null };
+  type WriteItem = { day: string; slot: number; categoryId: string | null; note: string | null };
   type Action = { before: SlotSnapshot[]; after: WriteItem[] };
   const [undoStack, setUndoStack] = useState<Action[]>([]);
   const [redoStack, setRedoStack] = useState<Action[]>([]);
@@ -65,62 +87,81 @@ export function JournalView() {
     () => new Map<string, Category>((categories ?? []).map((c) => [c.id, c])),
     [categories],
   );
-  const entriesBySlot = useMemo(
-    () => new Map<number, TimeEntry>((entries ?? []).map((e) => [e.slot, e])),
-    [entries],
+
+  const entriesByKey = useMemo(() => {
+    const m = new Map<string, TimeEntry>();
+    for (const e of q1.data ?? []) m.set(cellKey(e.day, e.slot), e);
+    for (const e of q2.data ?? []) m.set(cellKey(e.day, e.slot), e);
+    return m;
+  }, [q1.data, q2.data]);
+
+  const windowKeys = useMemo(
+    () => new Set(cells.map((c) => cellKey(c.day, c.slot))),
+    [cells],
+  );
+  const conflictKeys = useMemo(
+    () =>
+      new Set(
+        conflicts.map((c) => cellKey(c.day, c.slot)).filter((k) => windowKeys.has(k)),
+      ),
+    [conflicts, windowKeys],
   );
 
-  const conflictSlots = useMemo(
-    () => new Set(conflicts.filter((c) => c.day === activeDay).map((c) => c.slot)),
-    [conflicts, activeDay],
+  const loggedCount = useMemo(
+    () => cells.reduce((n, c) => n + (entriesByKey.has(cellKey(c.day, c.slot)) ? 1 : 0), 0),
+    [cells, entriesByKey],
   );
 
-  const brush = brushId ? categoriesById.get(brushId) ?? null : null;
-  const loggedCount = entries?.length ?? 0;
-
-  // Recent brushes: categories used most on this day, else the first few.
   const recent = useMemo(() => {
     const freq = new Map<string, number>();
-    for (const e of entries ?? []) freq.set(e.categoryId, (freq.get(e.categoryId) ?? 0) + 1);
+    for (const c of cells) {
+      const e = entriesByKey.get(cellKey(c.day, c.slot));
+      if (e) freq.set(e.categoryId, (freq.get(e.categoryId) ?? 0) + 1);
+    }
     const used = [...freq.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id]) => categoriesById.get(id))
       .filter((c): c is Category => Boolean(c && !c.archived));
-    const fill = (categories ?? []).filter((c) => !c.archived && !freq.has(c.id));
-    return [...used, ...fill].slice(0, 4);
-  }, [entries, categories, categoriesById]);
+    const fillCats = (categories ?? []).filter((c) => !c.archived && !freq.has(c.id));
+    return [...used, ...fillCats].slice(0, 4);
+  }, [cells, entriesByKey, categories, categoriesById]);
 
-  const baselineOf = (slot: number) => entriesBySlot.get(slot)?.updatedAt ?? null;
+  const baselineOf = (day: string, slot: number) =>
+    entriesByKey.get(cellKey(day, slot))?.updatedAt ?? null;
 
-  // Reset undo/redo history when the viewed day changes (snapshots are per-day).
+  // Reset undo/redo when the view identity changes (not on live hour-rolls).
   useEffect(() => {
     setUndoStack([]);
     setRedoStack([]);
-  }, [activeDay]);
+  }, [viewKey]);
 
-  /** Replay a set of writes through the queue (clearing any conflict flags). */
+  /** Replay writes through the queue, grouped by day, clearing conflict flags. */
   function applyWrites(items: WriteItem[]) {
-    items.forEach((i) => clearConflict(activeDay, i.slot));
-    void enqueue(
-      activeDay,
-      items.map((i) => ({ ...i, clientUpdatedAt: baselineOf(i.slot) })),
-    );
+    const byDay = new Map<string, { slot: number; categoryId: string | null; note: string | null; clientUpdatedAt: string | null }[]>();
+    for (const i of items) {
+      clearConflict(i.day, i.slot);
+      const arr = byDay.get(i.day) ?? [];
+      arr.push({ slot: i.slot, categoryId: i.categoryId, note: i.note, clientUpdatedAt: baselineOf(i.day, i.slot) });
+      byDay.set(i.day, arr);
+    }
+    for (const [day, arr] of byDay) void enqueue(day, arr);
   }
 
   /** The single write path: record before/after for undo/redo, then apply. */
-  function commit(items: { slot: number; categoryId: string | null; note?: string | null }[]) {
+  function commit(items: { day: string; slot: number; categoryId: string | null; note?: string | null }[]) {
     if (items.length === 0) return;
     const before: SlotSnapshot[] = items.map((i) => {
-      const e = entriesBySlot.get(i.slot);
-      return { slot: i.slot, prev: e ? { categoryId: e.categoryId, note: e.note } : null };
+      const e = entriesByKey.get(cellKey(i.day, i.slot));
+      return { day: i.day, slot: i.slot, prev: e ? { categoryId: e.categoryId, note: e.note } : null };
     });
     const after: WriteItem[] = items.map((i) => ({
+      day: i.day,
       slot: i.slot,
       categoryId: i.categoryId,
       note: i.note ?? null,
     }));
     setUndoStack((s) => [...s, { before, after }].slice(-100));
-    setRedoStack([]); // a fresh action invalidates the redo branch
+    setRedoStack([]);
     applyWrites(after);
   }
 
@@ -131,6 +172,7 @@ export function JournalView() {
     setRedoStack((s) => [...s, action].slice(-100));
     applyWrites(
       action.before.map((b) => ({
+        day: b.day,
         slot: b.slot,
         categoryId: b.prev ? b.prev.categoryId : null,
         note: b.prev ? b.prev.note : null,
@@ -146,7 +188,6 @@ export function JournalView() {
     applyWrites(action.after);
   }
 
-  // Keep refs so the one-time keyboard listener always calls the latest fns.
   const undoRef = useRef(undo);
   const redoRef = useRef(redo);
   undoRef.current = undo;
@@ -154,51 +195,55 @@ export function JournalView() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      // Don't hijack native text-undo while typing (e.g. the note field).
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
-      if (mod && key === "z" && e.shiftKey) {
-        e.preventDefault();
-        redoRef.current();
-      } else if (mod && key === "z") {
-        e.preventDefault();
-        undoRef.current();
-      } else if (mod && key === "y") {
-        e.preventDefault();
-        redoRef.current();
-      }
+      if (mod && key === "z" && e.shiftKey) { e.preventDefault(); redoRef.current(); }
+      else if (mod && key === "z") { e.preventDefault(); undoRef.current(); }
+      else if (mod && key === "y") { e.preventDefault(); redoRef.current(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function paint(slot: number) {
-    if (!brushId) {
-      setSheetOpen(true);
+  function fill(indices: number[], categoryId: string | null) {
+    commit(indices.map((i) => ({ day: cells[i].day, slot: cells[i].slot, categoryId })));
+  }
+
+  // Resolve the brush to a paintable target (null = erase; invalid/unset → pick).
+  const brushCat = brush && brush !== "erase" ? categoriesById.get(brush) ?? null : null;
+  const brushValid = brush === "erase" || brushCat !== null;
+
+  /** A tap/drag on slots: paint with the current brush, or open the picker. */
+  function activate(indices: number[], anchor: { x: number; y: number }) {
+    if (indices.length === 0) return;
+    if (!brushValid) {
+      setPicker({ x: anchor.x, y: anchor.y });
       return;
     }
-    const existing = entriesBySlot.get(slot);
-    const clear = existing?.categoryId === brushId;
-    commit([{ slot, categoryId: clear ? null : brushId }]);
+    const catId = brush === "erase" ? null : (brush as string);
+    if (indices.length === 1) {
+      const cell = cells[indices[0]];
+      const existing = entriesByKey.get(cellKey(cell.day, cell.slot));
+      const next = catId !== null && existing?.categoryId === catId ? null : catId; // toggle
+      commit([{ day: cell.day, slot: cell.slot, categoryId: next }]);
+    } else {
+      commit(indices.map((i) => ({ day: cells[i].day, slot: cells[i].slot, categoryId: catId })));
+    }
   }
 
-  function paintRange(slots: number[]) {
-    if (!brushId || slots.length === 0) return;
-    commit(slots.map((slot) => ({ slot, categoryId: brushId })));
-  }
-
-  function fill(slots: number[], categoryId: string | null) {
-    commit(slots.map((slot) => ({ slot, categoryId })));
-  }
-
-  const noteEntry = noteSlot !== null ? entriesBySlot.get(noteSlot) : undefined;
-  const prevEntry =
-    noteSlot !== null && noteSlot > 0 ? entriesBySlot.get(noteSlot - 1) : undefined;
+  const noteCell = noteIndex !== null ? cells[noteIndex] : undefined;
+  const noteEntry = noteCell ? entriesByKey.get(cellKey(noteCell.day, noteCell.slot)) : undefined;
+  const prevCell = noteIndex !== null && noteIndex > 0 ? cells[noteIndex - 1] : undefined;
+  const prevEntry = prevCell ? entriesByKey.get(cellKey(prevCell.day, prevCell.slot)) : undefined;
 
   if (!mounted) {
     return <div style={{ minHeight: "100dvh" }} aria-hidden />;
   }
+
+  const isLive = view.mode === "live";
+  const headerTitle = isLive ? "Last 24 hours" : view.day === today.day ? "Today" : prettyDay(view.day);
+  const headerSub = isLive ? `${loggedCount} of ${SLOTS_PER_DAY} logged · live` : `${prettyDay(view.day)} · ${loggedCount} of ${SLOTS_PER_DAY} logged`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
@@ -223,140 +268,157 @@ export function JournalView() {
           <CalendarDays size={20} style={{ color: "var(--text-secondary)", flex: "none" }} />
           <span>
             <span style={{ display: "block", fontSize: 17, fontWeight: 500, color: "var(--text)" }}>
-              {activeDay === today.day ? "Today" : prettyDay(activeDay)}
+              {headerTitle}
             </span>
             <span className="tabular" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>
-              {prettyDay(activeDay)} · {loggedCount} of {SLOTS_PER_DAY} logged
+              {headerSub}
             </span>
           </span>
         </button>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {!isLive ? (
+            <button
+              onClick={() => setView({ mode: "live" })}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500, color: "var(--accent)", background: "none", border: "1px solid var(--border)", borderRadius: 20, padding: "5px 10px" }}
+            >
+              <RadioTower size={13} /> Live
+            </button>
+          ) : null}
           <SyncStatus online={online} pendingCount={pendingCount} syncing={syncing} />
           {undoStack.length > 0 ? (
-            <IconBtn label="Undo last change" onClick={undo}>
-              <Undo2 size={17} />
-            </IconBtn>
+            <IconBtn label="Undo last change" onClick={undo}><Undo2 size={17} /></IconBtn>
           ) : null}
           {redoStack.length > 0 ? (
-            <IconBtn label="Redo" onClick={redo}>
-              <Redo2 size={17} />
-            </IconBtn>
+            <IconBtn label="Redo" onClick={redo}><Redo2 size={17} /></IconBtn>
           ) : null}
         </div>
       </header>
 
       <div aria-live="polite" className="sr-only">
-        {conflictSlots.size > 0
-          ? `${conflictSlots.size} slot${conflictSlots.size === 1 ? "" : "s"} on this day changed on another device.`
+        {conflictKeys.size > 0
+          ? `${conflictKeys.size} slot${conflictKeys.size === 1 ? "" : "s"} in view changed on another device.`
           : ""}
       </div>
 
-      {conflictSlots.size > 0 ? (
+      {conflictKeys.size > 0 ? (
         <div
           role="status"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            margin: "8px 12px 0",
-            padding: "8px 12px",
-            fontSize: 13,
-            borderRadius: 8,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            color: "var(--warning)",
-          }}
+          style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 12px 0", padding: "8px 12px", fontSize: 13, borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--warning)" }}
         >
           <AlertTriangle size={15} />
           <span style={{ flex: 1, color: "var(--text-secondary)" }}>
-            {conflictSlots.size} slot{conflictSlots.size === 1 ? "" : "s"} changed on another device — your version was kept.
+            {conflictKeys.size} slot{conflictKeys.size === 1 ? "" : "s"} changed on another device — your version was kept.
           </span>
-          <button
-            onClick={() => clearConflicts()}
-            style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)", background: "none", border: "none" }}
-          >
+          <button onClick={() => clearConflicts()} style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)", background: "none", border: "none" }}>
             Dismiss
           </button>
         </div>
       ) : null}
 
-      <div style={{ flex: 1, paddingBottom: 104 }}>
+      <div style={{ flex: 1, paddingBottom: isDesktop ? 16 : 96 }}>
         {isLoading ? (
           <TimelineSkeleton />
         ) : isDesktop ? (
-          <DesktopGrid
-            entriesBySlot={entriesBySlot}
-            categoriesById={categoriesById}
-            categories={categories ?? []}
-            currentSlot={currentSlot}
-            conflictSlots={conflictSlots}
-            brushId={brushId}
-            onFill={fill}
-            onOpenNote={(slot) => setNoteSlot(slot)}
-            onNeedBrush={() => setSheetOpen(true)}
-          />
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start", maxWidth: 1000, margin: "0 auto", padding: "0 16px" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <DesktopGrid
+                cells={cells}
+                entriesByKey={entriesByKey}
+                categoriesById={categoriesById}
+                categories={categories ?? []}
+                currentIndex={currentIndex}
+                conflictKeys={conflictKeys}
+                onFill={fill}
+                onPickFor={activate}
+                onOpenNote={(index) => setNoteIndex(index)}
+              />
+            </div>
+            <DesktopPalette categories={categories ?? []} brush={brush} onSelect={setBrush} />
+          </div>
         ) : (
           <Timeline
-            entriesBySlot={entriesBySlot}
+            cells={cells}
+            entriesByKey={entriesByKey}
             categoriesById={categoriesById}
-            currentSlot={currentSlot}
-            conflictSlots={conflictSlots}
-            onPaint={paint}
-            onPaintRange={paintRange}
-            onLongPress={(slot) => setNoteSlot(slot)}
+            currentIndex={currentIndex}
+            conflictKeys={conflictKeys}
+            onPickFor={activate}
+            onLongPress={(index) => setNoteIndex(index)}
           />
         )}
       </div>
 
-      <BrushBar
-        brush={brush}
-        recent={recent}
-        onPickRecent={setBrushId}
-        onOpenPalette={() => setSheetOpen(true)}
-      />
+      {!isDesktop ? (
+        <button
+          aria-label="Choose category"
+          onClick={() =>
+            setPicker({ x: typeof window !== "undefined" ? window.innerWidth / 2 : 180, y: typeof window !== "undefined" ? window.innerHeight - 96 : 600 })
+          }
+          style={{
+            position: "fixed",
+            left: "50%",
+            transform: "translateX(-50%)",
+            bottom: "calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px)",
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            border: "3px solid var(--bg)",
+            background: brush === "erase" ? "var(--surface-2)" : brushCat?.color ?? "var(--accent)",
+            color: brush === "erase" ? "var(--text-secondary)" : brushCat ? onColor(brushCat.color) : "var(--accent-contrast)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 13,
+            fontWeight: 600,
+            zIndex: 45,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+          }}
+        >
+          {brush === "erase" ? <Eraser size={20} /> : brushCat ? brushCat.code : <Palette size={22} />}
+        </button>
+      ) : null}
 
-      <CategorySheet
-        open={sheetOpen}
-        categories={categories ?? []}
-        selectedId={brushId}
-        onSelect={(id) => {
-          setBrushId(id);
-          setSheetOpen(false);
-        }}
-        onClose={() => setSheetOpen(false)}
-      />
+      {picker ? (
+        <CategoryPicker
+          x={picker.x}
+          y={picker.y}
+          categories={categories ?? []}
+          recent={recent}
+          onPick={(categoryId) => {
+            setBrush(categoryId === null ? "erase" : categoryId);
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
+        />
+      ) : null}
 
-      {noteSlot !== null ? (
+      {noteIndex !== null && noteCell ? (
         <SlotSheet
-          slot={noteSlot}
+          slot={noteCell.slot}
           entry={noteEntry}
           category={noteEntry ? categoriesById.get(noteEntry.categoryId) : undefined}
           prevEntry={prevEntry}
           onSaveNote={(note) => {
-            if (noteEntry) {
-              commit([{ slot: noteSlot, categoryId: noteEntry.categoryId, note }]);
-            }
-            setNoteSlot(null);
+            if (noteEntry) commit([{ day: noteCell.day, slot: noteCell.slot, categoryId: noteEntry.categoryId, note }]);
+            setNoteIndex(null);
           }}
           onClear={() => {
-            commit([{ slot: noteSlot, categoryId: null }]);
-            setNoteSlot(null);
+            commit([{ day: noteCell.day, slot: noteCell.slot, categoryId: null }]);
+            setNoteIndex(null);
           }}
           onCopyPrevious={() => {
-            if (prevEntry) {
-              commit([{ slot: noteSlot, categoryId: prevEntry.categoryId, note: prevEntry.note }]);
-            }
-            setNoteSlot(null);
+            if (prevEntry) commit([{ day: noteCell.day, slot: noteCell.slot, categoryId: prevEntry.categoryId, note: prevEntry.note }]);
+            setNoteIndex(null);
           }}
-          onClose={() => setNoteSlot(null)}
+          onClose={() => setNoteIndex(null)}
         />
       ) : null}
 
       {calendarOpen ? (
         <CalendarSheet
-          selectedDay={activeDay}
+          selectedDay={view.mode === "day" ? view.day : today.day}
           today={today.day}
-          onSelect={(d) => setDay(d)}
+          onSelect={(d) => setView(d === today.day ? { mode: "live" } : { mode: "day", day: d })}
           onClose={() => setCalendarOpen(false)}
         />
       ) : null}
@@ -364,75 +426,30 @@ export function JournalView() {
   );
 }
 
-function IconBtn({
-  children,
-  label,
-  onClick,
-}: {
-  children: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
+function IconBtn({ children, label, onClick }: { children: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
       aria-label={label}
       onClick={onClick}
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: "50%",
-        border: "1px solid var(--border)",
-        background: "var(--surface)",
-        color: "var(--text-secondary)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+      style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center" }}
     >
       {children}
     </button>
   );
 }
 
-function SyncStatus({
-  online,
-  pendingCount,
-  syncing,
-}: {
-  online: boolean;
-  pendingCount: number;
-  syncing: boolean;
-}) {
+function SyncStatus({ online, pendingCount, syncing }: { online: boolean; pendingCount: number; syncing: boolean }) {
   if (online && pendingCount === 0 && !syncing) return null;
-
   const offline = !online;
   const label = offline
     ? `Offline${pendingCount ? ` · ${pendingCount}` : ""}`
-    : syncing
-      ? "Syncing…"
-      : `${pendingCount} pending`;
-
+    : syncing ? "Syncing…" : `${pendingCount} pending`;
   return (
     <span
       title={offline ? "You're offline — changes are saved and will sync when you reconnect." : "Saving your changes"}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        fontSize: 11,
-        fontWeight: 500,
-        padding: "4px 8px",
-        borderRadius: 20,
-        background: offline ? "var(--surface-2)" : "var(--surface-2)",
-        color: offline ? "var(--warning)" : "var(--text-secondary)",
-        border: "1px solid var(--border)",
-      }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: offline ? "var(--warning)" : "var(--text-secondary)", border: "1px solid var(--border)" }}
     >
-      {offline ? (
-        <CloudOff size={12} />
-      ) : (
-        <RefreshCw size={12} className={syncing ? "tj-spin" : undefined} />
-      )}
+      {offline ? <CloudOff size={12} /> : <RefreshCw size={12} className={syncing ? "tj-spin" : undefined} />}
       {label}
     </span>
   );
@@ -442,16 +459,7 @@ function TimelineSkeleton() {
   return (
     <div style={{ padding: 12 }}>
       {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 48,
-            margin: "6px 0",
-            borderRadius: 8,
-            background: "var(--surface-2)",
-            opacity: 1 - i * 0.08,
-          }}
-        />
+        <div key={i} style={{ height: 48, margin: "6px 0", borderRadius: 8, background: "var(--surface-2)", opacity: 1 - i * 0.08 }} />
       ))}
     </div>
   );
