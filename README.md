@@ -181,7 +181,3 @@ test database is configured.
 - [ ] PWA install / service worker
 - [ ] Comparative dashboards between users (opt-in)
 
-## License
-
-No license yet — all rights reserved. Add a `LICENSE` file (e.g. MIT) to
-open-source it.

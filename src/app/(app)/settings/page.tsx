@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, LogOut, Mail, RefreshCw } from "lucide-react";
 import { api } from "@/lib/client/api";
 import {
