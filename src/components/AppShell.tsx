@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BarChart3, LayoutGrid, ListTree, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { TimezoneSync } from "./TimezoneSync";
 
 const TABS = [
   { href: "/", label: "Journal", icon: LayoutGrid },
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+      <TimezoneSync />
       <div style={{ flex: 1, paddingBottom: "calc(var(--nav-h) + env(safe-area-inset-bottom))" }}>
         {children}
       </div>

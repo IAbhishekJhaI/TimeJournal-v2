@@ -60,6 +60,13 @@ export interface SavedQuery {
   categoryIds: string[];
 }
 
+export interface Invite {
+  email: string;
+  invitedBy: string | null;
+  createdAt: string;
+  redeemedAt: string | null;
+}
+
 export type { Profile, GroupBy, SummaryBucket, UpsertConflict };
 
 // ---- Response envelopes ----

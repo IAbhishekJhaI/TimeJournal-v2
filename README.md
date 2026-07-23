@@ -133,7 +133,9 @@ Mobile-first web app under `src/app` — a route group `(app)` guarded by
   15-min slots, a brush bar with recent categories, and a category bottom sheet
   (`src/components/journal/*`). Writes are optimistic via TanStack Query
   (`src/lib/client/hooks.ts`) against `PUT /api/entries`.
-- `/settings` — profile + sign-out (functional); `/insights`, `/categories` are Phase 4 placeholders.
+- `/settings` — editable profile (name, timezone), Google Sheets export target + "Export now", invites (add to allowlist / see who's joined), CSV data export, sign-out. Uses `PATCH /api/me`, `POST /api/export/sheet`, and the new `GET/POST /api/invites`.
+- `/categories` — full tree editor.
+- `/insights` — analytics dashboard over `GET /api/analytics/summary`: day/week/month/year switcher + period stepper, category/group/colour toggle, total + % of period, a donut, and a ranked bar breakdown (lightweight custom SVG, no chart lib).
 
 After pulling these changes, install the new deps before running:
 
@@ -153,7 +155,9 @@ journal header shows an offline / "N pending" / syncing indicator.
 
 ## What's not here yet
 
-- Dashboards, quick-log UI — Phase 4.
+- Quick-log UI (free-text parsing exists at `POST /api/quicklog/parse`; no front-end for it yet).
+- Saved-query tiles + streaks on Insights.
+- PWA install / service worker.
 - Conflict flag UI (`sync` captures server `conflicts`; the journal doesn't surface them yet) — next Phase 3 item.
 Conflict flag: writes carry the `clientUpdatedAt` the client last saw for a slot
 (baseline preserved across offline re-edits). `PUT /api/entries` returns any slot

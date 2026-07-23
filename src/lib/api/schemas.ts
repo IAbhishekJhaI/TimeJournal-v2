@@ -57,6 +57,10 @@ export const savedQueryUpdateSchema = z.object({
   categoryIds: z.array(uuid).min(1).optional(),
 });
 
+export const inviteCreateSchema = z.object({
+  email: z.string().email().max(254),
+});
+
 export const quicklogParseSchema = z.object({
   text: z.string().min(1).max(200),
   // The day the free-text entry applies to; defaults to today (server-side)

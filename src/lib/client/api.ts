@@ -7,10 +7,13 @@ import type {
   CategoryReorderResponse,
   CategoryResponse,
   CategoryUpdate,
+  DrainResponse,
   EntriesBatch,
   EntriesPutResponse,
   EntriesResponse,
   GroupBy,
+  MeUpdate,
+  Profile,
   ProfileResponse,
   TimeEntry,
 } from "@/lib/api/types";
@@ -47,6 +50,23 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getProfile: () => apiFetch<ProfileResponse>("/me").then((r) => r.profile),
+
+  updateProfile: (body: MeUpdate): Promise<Profile> =>
+    apiFetch<ProfileResponse>("/me", { method: "PATCH", body: JSON.stringify(body) }).then(
+      (r) => r.profile,
+    ),
+
+  exportNow: (): Promise<DrainResponse> =>
+    apiFetch<DrainResponse>("/export/sheet", { method: "POST" }),
+
+  getInviteStats: (): Promise<{ total: number; redeemed: number }> =>
+    apiFetch<{ total: number; redeemed: number }>("/invites"),
+
+  addInvite: (email: string): Promise<boolean> =>
+    apiFetch<{ added: boolean }>("/invites", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }).then((r) => r.added),
 
   getCategories: (includeArchived = false): Promise<Category[]> =>
     apiFetch<CategoriesResponse>(

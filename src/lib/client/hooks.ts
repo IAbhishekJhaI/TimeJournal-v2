@@ -2,10 +2,45 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { CategoryCreate, CategoryReorder, CategoryUpdate } from "@/lib/api/types";
+import type { CategoryCreate, CategoryReorder, CategoryUpdate, GroupBy, MeUpdate } from "@/lib/api/types";
+
+export function useAnalytics(
+  period: "day" | "week" | "month" | "year",
+  date: string,
+  groupBy: GroupBy,
+) {
+  return useQuery({
+    queryKey: ["analytics", period, date, groupBy],
+    queryFn: () => api.getAnalytics(period, date, groupBy),
+  });
+}
 
 export function useProfile() {
   return useQuery({ queryKey: ["me"], queryFn: api.getProfile });
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeUpdate) => api.updateProfile(body),
+    onSuccess: (profile) => qc.setQueryData(["me"], profile),
+  });
+}
+
+export function useExportNow() {
+  return useMutation({ mutationFn: () => api.exportNow() });
+}
+
+export function useInviteStats() {
+  return useQuery({ queryKey: ["invites"], queryFn: api.getInviteStats });
+}
+
+export function useAddInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) => api.addInvite(email),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["invites"] }),
+  });
 }
 
 export function useCategories(includeArchived = false) {
