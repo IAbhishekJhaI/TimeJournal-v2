@@ -154,8 +154,36 @@ journal header shows an offline / "N pending" / syncing indicator.
 ## What's not here yet
 
 - Dashboards, quick-log UI — Phase 4.
-- Conflict flag UI (`sync` captures server `conflicts`; the journal doesn't surface them yet) and per-slot notes — next Phase 3 items.
-- Keyboard input mode + desktop 24×4 grid — remaining §3.4 parity items.
+- Conflict flag UI (`sync` captures server `conflicts`; the journal doesn't surface them yet) — next Phase 3 item.
+Conflict flag: writes carry the `clientUpdatedAt` the client last saw for a slot
+(baseline preserved across offline re-edits). `PUT /api/entries` returns any slot
+the server changed more recently; `sync.tsx` merges those by `day:slot`. The
+journal shows a warning corner on affected slots, a dismissable banner, and an
+`aria-live` announcement. Last-write-wins still applies — this only flags. A
+slot's flag clears when you repaint it.
+
+Desktop grid (≥1024px): the tall mobile timeline is swapped for a dense 24×4
+grid (`src/components/journal/DesktopGrid.tsx`) with keyboard entry — arrow keys
+move a cursor, shift+arrows select a range, type a category code + Enter to fill,
+Backspace clears, Escape deselects, double-click opens the note sheet. Mouse
+click/drag paints with the brush. Switched via `useMediaQuery`.
+
+Calendar: the journal header (date + calendar icon) opens a month picker
+(`src/components/journal/CalendarSheet.tsx`) to jump to any day. It fetches the
+visible month's entries and shows a per-day density dot (logged-slot count);
+"Jump to today" resets. This replaced the prev/next-day arrows.
+
+Undo/redo: every journal edit (paint, drag-fill, note, clear) goes through a
+single `commit()` that records the affected slots' state before (for undo) and
+the writes it applied after (for redo) onto per-day stacks; both replay through
+the same queue. Undo = header button or Cmd/Ctrl+Z; redo = header button,
+Cmd/Ctrl+Shift+Z, or Ctrl+Y. A new edit clears the redo branch; both stacks reset
+when you switch days.
+
+Per-slot notes: long-press a slot on the timeline to open a sheet with the slot's
+time, category, an optional note field, clear-slot, and copy-previous-slot. Notes
+show as a small dot on the slot. (Repainting a slot replaces its row, so it
+clears the note — matching the server's upsert semantics.)
 - A wired test database for the integration suite (self-skips until then).
 - `saved_queries` import from the sheet (this export only has `Days` + `Categories` tabs; no `Queries` tab was present to import from).
 - Materialized daily-totals view (§9: revisit only past ~1M rows; not needed at this scale).

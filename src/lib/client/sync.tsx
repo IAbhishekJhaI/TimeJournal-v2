@@ -25,7 +25,11 @@ export interface PaintInput {
   slot: number;
   categoryId: string | null;
   note?: string | null;
+  /** Server updatedAt the client last saw for this slot (conflict baseline). */
+  clientUpdatedAt?: string | null;
 }
+
+const conflictKey = (day: string, slot: number) => `${day}:${slot}`;
 
 interface SyncContextValue {
   online: boolean;
@@ -36,6 +40,7 @@ interface SyncContextValue {
   enqueue: (day: string, items: PaintInput[]) => Promise<void>;
   flush: () => Promise<void>;
   clearConflicts: () => void;
+  clearConflict: (day: string, slot: number) => void;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -56,7 +61,9 @@ function applyOptimistic(qc: QueryClient, day: string, items: PaintInput[]) {
         day,
         slot: item.slot,
         categoryId: item.categoryId,
-        note: item.note ?? existing?.note ?? null,
+        // Match the server upsert: note is replaced by whatever the write
+        // provides (null if omitted). Paints omit note; the SlotSheet sends it.
+        note: item.note ?? null,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -103,11 +110,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               slot: w.slot,
               categoryId: w.categoryId,
               note: w.note,
+              clientUpdatedAt: w.clientUpdatedAt,
             })),
           );
           await deletePending(writes.map((w) => w.key));
           if (res.conflicts.length > 0) {
-            setConflicts((prev) => [...prev, ...res.conflicts]);
+            // Merge by (day, slot) so a slot never shows two stale flags.
+            setConflicts((prev) => {
+              const byKey = new Map(prev.map((c) => [conflictKey(c.day, c.slot), c]));
+              for (const c of res.conflicts) byKey.set(conflictKey(c.day, c.slot), c);
+              return [...byKey.values()];
+            });
           }
           // Reconcile the cache with the server's truth for this day.
           qc.invalidateQueries({ queryKey: entriesKey(day) });
@@ -128,6 +141,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     async (day: string, items: PaintInput[]) => {
       applyOptimistic(qc, day, items);
       const now = Date.now();
+
+      // Preserve the conflict baseline across offline re-edits: if this slot is
+      // already queued, keep the updatedAt captured on the FIRST edit rather
+      // than the optimistic timestamp from an intermediate local change.
+      const existing = await allPending();
+      const baselineBySlot = new Map<number, string | null>();
+      for (const w of existing) if (w.day === day) baselineBySlot.set(w.slot, w.clientUpdatedAt);
+
       await putPending(
         items.map((i) => ({
           key: pendingKey(day, i.slot),
@@ -135,6 +156,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           slot: i.slot,
           categoryId: i.categoryId,
           note: i.note ?? null,
+          clientUpdatedAt: baselineBySlot.has(i.slot)
+            ? (baselineBySlot.get(i.slot) ?? null)
+            : (i.clientUpdatedAt ?? null),
           queuedAt: now,
         })),
       );
@@ -165,10 +189,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, [flush, refreshCount]);
 
   const clearConflicts = useCallback(() => setConflicts([]), []);
+  const clearConflict = useCallback((day: string, slot: number) => {
+    setConflicts((prev) => prev.filter((c) => !(c.day === day && c.slot === slot)));
+  }, []);
 
   return (
     <SyncContext.Provider
-      value={{ online, pendingCount, syncing, conflicts, enqueue, flush, clearConflicts }}
+      value={{ online, pendingCount, syncing, conflicts, enqueue, flush, clearConflicts, clearConflict }}
     >
       {children}
     </SyncContext.Provider>

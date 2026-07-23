@@ -11,6 +11,9 @@ export interface PendingWrite {
   slot: number;
   categoryId: string | null; // null = clear the slot
   note: string | null;
+  // The server updatedAt this slot had when the user first edited it offline —
+  // the baseline for conflict detection. Preserved across local re-edits.
+  clientUpdatedAt: string | null;
   queuedAt: number;
 }
 
