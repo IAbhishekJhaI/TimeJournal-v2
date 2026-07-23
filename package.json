@@ -11,13 +11,14 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "import:xlsx": "tsx scripts/import-xlsx.ts",
+    "db:check": "tsx scripts/db-check.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.0",
-    "@supabase/supabase-js": "^2.110.2",
+    "@supabase/ssr": "^0.12.3",
+    "@supabase/supabase-js": "^2.110.8",
     "@tanstack/react-query": "^5.62.0",
     "drizzle-orm": "^0.45.2",
     "googleapis": "^173.0.0",

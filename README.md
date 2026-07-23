@@ -142,10 +142,20 @@ npm install            # adds react, react-dom, @tanstack/react-query, lucide-re
 npm run dev
 ```
 
+### Offline write queue
+
+Paints are durable: `enqueue()` (`src/lib/client/sync.tsx`) writes each slot to an
+IndexedDB store (`src/lib/client/idb.ts`, keyed by `day:slot` for dedup) and
+optimistically updates the cache, then flushes to `PUT /api/entries`. Flushes
+run on paint, on `online`, and on mount — so queued writes survive going offline
+*and* a refresh, and replay idempotently (server PK `(user, day, slot)`). The
+journal header shows an offline / "N pending" / syncing indicator.
+
 ## What's not here yet
 
-- Dashboards, category editor, quick-log UI, drag-fill polish, PWA/offline — Phase 4.
-- IndexedDB durability for the offline write queue (today's optimistic writes are in-memory via TanStack Query) — Phase 4.6.
+- Dashboards, quick-log UI — Phase 4.
+- Conflict flag UI (`sync` captures server `conflicts`; the journal doesn't surface them yet) and per-slot notes — next Phase 3 items.
+- Keyboard input mode + desktop 24×4 grid — remaining §3.4 parity items.
 - A wired test database for the integration suite (self-skips until then).
 - `saved_queries` import from the sheet (this export only has `Days` + `Categories` tabs; no `Queries` tab was present to import from).
 - Materialized daily-totals view (§9: revisit only past ~1M rows; not needed at this scale).

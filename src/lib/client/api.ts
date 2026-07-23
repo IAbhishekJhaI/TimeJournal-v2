@@ -2,6 +2,11 @@ import type {
   AnalyticsSummaryResponse,
   CategoriesResponse,
   Category,
+  CategoryCreate,
+  CategoryReorder,
+  CategoryReorderResponse,
+  CategoryResponse,
+  CategoryUpdate,
   EntriesBatch,
   EntriesPutResponse,
   EntriesResponse,
@@ -47,6 +52,29 @@ export const api = {
     apiFetch<CategoriesResponse>(
       `/categories${includeArchived ? "?includeArchived=true" : ""}`,
     ).then((r) => r.categories),
+
+  createCategory: (body: CategoryCreate): Promise<Category> =>
+    apiFetch<CategoryResponse>("/categories", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }).then((r) => r.category),
+
+  updateCategory: (id: string, body: CategoryUpdate): Promise<Category> =>
+    apiFetch<CategoryResponse>(`/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }).then((r) => r.category),
+
+  archiveCategory: (id: string): Promise<Category> =>
+    apiFetch<CategoryResponse>(`/categories/${id}`, { method: "DELETE" }).then(
+      (r) => r.category,
+    ),
+
+  reorderCategories: (items: CategoryReorder): Promise<CategoryReorderResponse> =>
+    apiFetch<CategoryReorderResponse>("/categories/reorder", {
+      method: "PATCH",
+      body: JSON.stringify(items),
+    }),
 
   getEntries: (from: string, to: string): Promise<TimeEntry[]> =>
     apiFetch<EntriesResponse>(`/entries?from=${from}&to=${to}`).then((r) => r.entries),

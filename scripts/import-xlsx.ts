@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./load-env";
 import { readFileSync } from "node:fs";
 import { ImportValidationError, importWorkbook } from "@/lib/import/run";
 

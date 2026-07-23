@@ -71,6 +71,15 @@ button {
   cursor: pointer;
 }
 
+.tj-spin {
+  animation: tj-spin 1s linear infinite;
+}
+@keyframes tj-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Respect reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   * {
