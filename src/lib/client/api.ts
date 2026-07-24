@@ -16,6 +16,7 @@ import type {
   MeUpdate,
   Profile,
   ProfileResponse,
+  QuicklogParseResponse,
   TimeEntry,
 } from "@/lib/api/types";
 
@@ -114,6 +115,12 @@ export const api = {
     apiFetch<EntriesPutResponse>("/entries", {
       method: "PUT",
       body: JSON.stringify(items),
+    }),
+
+  parseQuicklog: (text: string, day?: string): Promise<QuicklogParseResponse> =>
+    apiFetch<QuicklogParseResponse>("/quicklog/parse", {
+      method: "POST",
+      body: JSON.stringify(day ? { text, day } : { text }),
     }),
 
   getAnalytics: (

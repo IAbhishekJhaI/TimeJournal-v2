@@ -93,6 +93,13 @@ export function useEntries(day: string) {
   });
 }
 
+/** Parse a free-text quick-log line into a proposed slot range + category. */
+export function useQuicklogParse() {
+  return useMutation({
+    mutationFn: ({ text, day }: { text: string; day?: string }) => api.parseQuicklog(text, day),
+  });
+}
+
 // Writes now go through the offline-durable queue in `sync.tsx`
 // (useSync().enqueue) rather than a direct react-query mutation, so paints
 // survive offline and a refresh. See IMPLEMENTATION_PLAN.md §4.6.
