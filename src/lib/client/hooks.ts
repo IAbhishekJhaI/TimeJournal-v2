@@ -40,18 +40,6 @@ export function useImportXlsx() {
   });
 }
 
-export function useInviteStats() {
-  return useQuery({ queryKey: ["invites"], queryFn: api.getInviteStats });
-}
-
-export function useAddInvite() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (email: string) => api.addInvite(email),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["invites"] }),
-  });
-}
-
 export function useCategories(includeArchived = false) {
   return useQuery({
     queryKey: ["categories", { includeArchived }],

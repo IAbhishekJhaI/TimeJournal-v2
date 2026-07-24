@@ -10,7 +10,8 @@ your time actually goes.
 <p>
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=next.js" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" />
-  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth-3FCF8E?logo=supabase&logoColor=white" />
+  <img alt="Clerk" src="https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?logo=supabase&logoColor=white" />
   <img alt="Drizzle" src="https://img.shields.io/badge/Drizzle-ORM-C5F74F" />
   <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss&logoColor=white" />
 </p>
@@ -64,7 +65,7 @@ mirror so nothing is lost.
 | Data layer | TanStack Query + a durable IndexedDB write queue |
 | Backend | Next.js Route Handlers (`/api/*`) — a modular monolith |
 | Database | Postgres on Supabase, [Drizzle ORM](https://orm.drizzle.team) |
-| Auth | Supabase Auth (email magic link) + a DB-level invite allowlist trigger |
+| Auth | [Clerk](https://clerk.com) — Google, passkeys, email; invite-only via Clerk's allowlist |
 | Sheets export | Outbox table + GitHub Actions cron → Google Sheets API |
 | Testing / CI | Vitest + GitHub Actions (typecheck · lint · test) |
 
@@ -72,8 +73,9 @@ mirror so nothing is lost.
 
 ```mermaid
 flowchart LR
-    UI["Next.js UI<br/>rolling grid · insights"] -->|session cookie| API["Route Handlers<br/>/api/*"]
-    UI -->|magic link| AUTH["Supabase Auth"]
+    UI["Next.js UI<br/>rolling grid · insights"] -->|session| API["Route Handlers<br/>/api/*"]
+    UI -->|sign in| AUTH["Clerk"]
+    API -->|verify session| AUTH
     API --> PG[("Postgres<br/>via Drizzle")]
     API -->|write entry + outbox row| PG
     CRON["GitHub Actions<br/>every 15 min"] -->|drain outbox| PG
@@ -82,7 +84,7 @@ flowchart LR
 
 Key decisions:
 - **Slot rows, not time ranges** — `time_entries` is keyed on `(user_id, day, slot 0–95)`, mirroring the grid, making writes idempotent upserts and analytics a `GROUP BY`.
-- **API-only data access** — the browser uses Supabase purely for auth; every query is scoped to the authenticated user in the API layer, with Postgres Row-Level Security as a defense-in-depth backstop.
+- **Clerk for auth, Supabase for data** — the browser authenticates with Clerk; the API verifies the Clerk session and scopes every query to the user. Supabase is purely the Postgres database. A Clerk user id maps to an internal `users` row (by `clerk_id`, linked by email on first sign-in).
 - **Eventually-consistent export** — each write enqueues a `(user, day)` outbox row; a cron worker rewrites just that sheet row server-side, so the sheet lags reality by at most the cron interval.
 
 ## Getting started
@@ -99,28 +101,27 @@ npm install
 
 | Variable | Where |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | same page (server-only secret key) |
-| `DATABASE_URL` | Connect → **Transaction pooler** (port 6543); the app connects with `prepare: false` |
-| `MIGRATE_DATABASE_URL` | Connect → **Session pooler** (port 5432); used only by `db:migrate` |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | [Clerk Dashboard](https://dashboard.clerk.com) → API keys |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in` + the fallback redirect vars | as in `.env.example` |
+| `DATABASE_URL` | Supabase → Connect → **Transaction pooler** (port 6543); the app connects with `prepare: false` |
+| `MIGRATE_DATABASE_URL` | Supabase → Connect → **Session pooler** (port 5432); used only by `db:migrate` |
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | Google Cloud service-account JSON (Sheets scope), one line — optional, only for sheet export |
 | `CRON_SECRET` | any random string, e.g. `openssl rand -hex 32` |
 
-> The transaction pooler (6543) is right for the serverless app but can't run
-> migrations reliably (session-level advisory locks); point `MIGRATE_DATABASE_URL`
-> at the session pooler (5432). Verify connectivity any time with `npm run db:check`.
+**3. Set up Clerk** — in the Clerk Dashboard: enable **Google** and **Passkeys**
+under User & Authentication, and turn on invite-only under **Restrictions →
+Allowlist** (add the emails allowed to sign up). Point the sign-in URL at
+`/sign-in` (already configured via env).
 
-**3. Migrate** — creates tables, RLS policies, and the invite-only signup trigger:
+**4. Migrate** — run the base schema, then the Clerk migration:
 
 ```bash
 npm run db:migrate
 ```
 
-**4. Invite yourself** (the signup trigger rejects any email not on the allowlist) in the Supabase SQL editor:
-
-```sql
-insert into invited_emails (email) values ('you@example.com');
-```
+Then run [`drizzle/0003_clerk_auth.sql`](drizzle/0003_clerk_auth.sql) once in the
+Supabase SQL editor (it decouples `users` from Supabase Auth and adds `clerk_id`).
+Verify DB connectivity any time with `npm run db:check`.
 
 **5. Run**
 
@@ -128,8 +129,8 @@ insert into invited_emails (email) values ('you@example.com');
 npm run dev
 ```
 
-Open the app, sign in with the magic link, and add a few categories (or import an
-existing sheet, below).
+Sign in via Clerk (Google / passkey / email). On first sign-in your Clerk account
+links to an internal profile (by email, so any pre-existing data stays yours).
 
 ## Importing an existing sheet
 
@@ -168,10 +169,9 @@ test database is configured.
 
 ## Security
 
-- Service keys (`SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`) are server-only and never reach the browser; `.env*` is gitignored.
-- Sign-in is **invite-only**, enforced by a DB trigger — not just app code.
-- Row-Level Security is enabled on every user table as a backstop; the API layer scopes every query to the authenticated user.
-- Invitee emails are never exposed to clients (the invites endpoint returns counts only).
+- Secrets (`CLERK_SECRET_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY`) are server-only and never reach the browser; `.env*` is gitignored.
+- Sign-in is **invite-only**, enforced by Clerk's allowlist.
+- Auth is fully delegated to Clerk (Google, passkeys, email); the API verifies the Clerk session and scopes every query to the authenticated user.
 
 ## Roadmap
 

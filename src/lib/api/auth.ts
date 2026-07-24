@@ -1,17 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@clerk/nextjs/server";
 import { ApiError } from "./errors";
+import { resolveUserId } from "./provision";
 
 /** Resolves the authenticated user for the current request, or throws 401. */
 export async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) {
     throw new ApiError(401, "authentication required");
   }
-
-  return user;
+  const id = await resolveUserId(clerkId);
+  return { id };
 }

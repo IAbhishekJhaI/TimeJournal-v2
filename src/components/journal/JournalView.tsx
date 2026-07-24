@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, CloudOff, Eraser, Palette, RadioTower, RefreshCw, Redo2, Undo2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, CloudOff, Eraser, Palette, RadioTower, RefreshCw, Redo2, Undo2, UploadCloud } from "lucide-react";
 import { useCategories, useEntries, useProfile } from "@/lib/client/hooks";
 import { useSync } from "@/lib/client/sync";
 import { useMediaQuery } from "@/lib/client/useMediaQuery";
@@ -55,7 +55,7 @@ export function JournalView() {
   const q1 = useEntries(fromDay);
   const q2 = useEntries(toDay);
   const isLoading = q1.isLoading || q2.isLoading;
-  const { enqueue, online, pendingCount, syncing, conflicts, clearConflict, clearConflicts } =
+  const { enqueue, flush, online, pendingCount, syncing, conflicts, clearConflict, clearConflicts } =
     useSync();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
@@ -190,8 +190,10 @@ export function JournalView() {
 
   const undoRef = useRef(undo);
   const redoRef = useRef(redo);
+  const flushRef = useRef(flush);
   undoRef.current = undo;
   redoRef.current = redo;
+  flushRef.current = flush;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -201,6 +203,7 @@ export function JournalView() {
       if (mod && key === "z" && e.shiftKey) { e.preventDefault(); redoRef.current(); }
       else if (mod && key === "z") { e.preventDefault(); undoRef.current(); }
       else if (mod && key === "y") { e.preventDefault(); redoRef.current(); }
+      else if (mod && key === "s") { e.preventDefault(); void flushRef.current(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -284,7 +287,12 @@ export function JournalView() {
               <RadioTower size={13} /> Live
             </button>
           ) : null}
-          <SyncStatus online={online} pendingCount={pendingCount} syncing={syncing} />
+          <UploadControl
+            online={online}
+            pendingCount={pendingCount}
+            syncing={syncing}
+            onUpload={() => void flush()}
+          />
           {undoStack.length > 0 ? (
             <IconBtn label="Undo last change" onClick={undo}><Undo2 size={17} /></IconBtn>
           ) : null}
@@ -438,20 +446,51 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
   );
 }
 
-function SyncStatus({ online, pendingCount, syncing }: { online: boolean; pendingCount: number; syncing: boolean }) {
-  if (online && pendingCount === 0 && !syncing) return null;
-  const offline = !online;
-  const label = offline
-    ? `Offline${pendingCount ? ` · ${pendingCount}` : ""}`
-    : syncing ? "Syncing…" : `${pendingCount} pending`;
+function UploadControl({
+  online,
+  pendingCount,
+  syncing,
+  onUpload,
+}: {
+  online: boolean;
+  pendingCount: number;
+  syncing: boolean;
+  onUpload: () => void;
+}) {
+  // Offline: can't upload now — changes are queued and go up on reconnect.
+  if (!online) {
+    return (
+      <span
+        title="You're offline — changes are saved locally and will upload when you reconnect."
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: "var(--warning)", border: "1px solid var(--border)" }}
+      >
+        <CloudOff size={12} />
+        {`Offline${pendingCount ? ` · ${pendingCount}` : ""}`}
+      </span>
+    );
+  }
+  // Upload in flight.
+  if (syncing) {
+    return (
+      <span
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+      >
+        <RefreshCw size={12} className="tj-spin" /> Uploading…
+      </span>
+    );
+  }
+  // Nothing queued — everything is already in the DB.
+  if (pendingCount === 0) return null;
+  // Pending changes waiting to be sent: the explicit upload button.
   return (
-    <span
-      title={offline ? "You're offline — changes are saved and will sync when you reconnect." : "Saving your changes"}
-      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: offline ? "var(--warning)" : "var(--text-secondary)", border: "1px solid var(--border)" }}
+    <button
+      onClick={onUpload}
+      aria-label={`Upload ${pendingCount} change${pendingCount === 1 ? "" : "s"} to the database`}
+      title="Send your pending changes to the database (Cmd/Ctrl+S)"
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 20, background: "var(--accent)", color: "var(--accent-contrast)", border: "none", cursor: "pointer" }}
     >
-      {offline ? <CloudOff size={12} /> : <RefreshCw size={12} className={syncing ? "tj-spin" : undefined} />}
-      {label}
-    </span>
+      <UploadCloud size={14} /> Upload {pendingCount}
+    </button>
   );
 }
 

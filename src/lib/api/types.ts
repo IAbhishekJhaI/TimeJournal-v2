@@ -60,13 +60,6 @@ export interface SavedQuery {
   categoryIds: string[];
 }
 
-export interface Invite {
-  email: string;
-  invitedBy: string | null;
-  createdAt: string;
-  redeemedAt: string | null;
-}
-
 export interface ImportResult {
   categoriesCreated: number;
   entriesCreated: number;

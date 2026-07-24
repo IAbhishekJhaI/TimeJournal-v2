@@ -7,7 +7,6 @@ import {
   foreignKey,
   index,
   integer,
-  pgSchema,
   pgTable,
   primaryKey,
   smallint,
@@ -18,18 +17,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Supabase manages this table; we only reference it for FKs, never migrate it.
+ * App-level profile. Auth is handled by Clerk; `clerk_id` maps the Clerk user
+ * to this internal id (kept as a uuid so existing data's user_id is unchanged).
  */
-const authSchema = pgSchema("auth");
-export const authUsers = authSchema.table("users", {
-  id: uuid("id").primaryKey(),
-});
-
-/** App-level profile, one row per Supabase auth user. */
 export const users = pgTable("users", {
-  id: uuid("id")
-    .primaryKey()
-    .references(() => authUsers.id, { onDelete: "cascade" }),
+  id: uuid("id").primaryKey().defaultRandom(),
+  clerkId: text("clerk_id").unique(),
   email: text("email").notNull().unique(),
   displayName: text("display_name"),
   timezone: text("timezone").notNull().default("Asia/Kolkata"),

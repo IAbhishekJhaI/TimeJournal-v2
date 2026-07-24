@@ -2,13 +2,12 @@
 
 import type React from "react";
 import { useEffect, useState } from "react";
-import { Download, LogOut, Mail, RefreshCw, Upload } from "lucide-react";
+import { Download, LogOut, RefreshCw, Upload } from "lucide-react";
+import { useClerk } from "@clerk/nextjs";
 import { api } from "@/lib/client/api";
 import {
-  useAddInvite,
   useExportNow,
   useImportXlsx,
-  useInviteStats,
   useProfile,
   useUpdateProfile,
 } from "@/lib/client/hooks";
@@ -73,18 +72,21 @@ export default function SettingsPage() {
         {updateProfile.isError ? <span style={{ fontSize: 13, color: "var(--danger)" }}>{(updateProfile.error as Error).message}</span> : null}
       </div>
 
-      <InvitesSection />
-
       <ImportSection />
 
       <DataSection />
 
-      <form action="/auth/signout" method="post" style={{ marginTop: 8 }}>
-        <button type="submit" style={dangerBtn}>
-          <LogOut size={16} /> Sign out
-        </button>
-      </form>
+      <SignOutButton />
     </div>
+  );
+}
+
+function SignOutButton() {
+  const { signOut } = useClerk();
+  return (
+    <button onClick={() => signOut({ redirectUrl: "/sign-in" })} style={{ ...dangerBtn, marginTop: 8 }}>
+      <LogOut size={16} /> Sign out
+    </button>
   );
 }
 
@@ -103,47 +105,6 @@ function ExportNowButton() {
       ) : null}
       {exportNow.isError ? <span style={{ fontSize: 13, color: "var(--danger)" }}>{(exportNow.error as Error).message}</span> : null}
     </div>
-  );
-}
-
-function InvitesSection() {
-  const { data: stats } = useInviteStats();
-  const addInvite = useAddInvite();
-  const [email, setEmail] = useState("");
-  const [added, setAdded] = useState<string | null>(null);
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const value = email.trim();
-    if (!value) return;
-    addInvite.mutate(value, {
-      onSuccess: () => {
-        setAdded(value);
-        setEmail("");
-      },
-    });
-  }
-
-  return (
-    <Section title="Invites">
-      <p style={muted}>Sign-in is invite-only. Add an email here so that person can sign in.</p>
-      <form onSubmit={submit} style={{ display: "flex", gap: 8 }}>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="name@example.com" style={{ ...input, flex: 1 }} />
-        <button type="submit" disabled={addInvite.isPending} style={secondaryBtn}>
-          <Mail size={15} /> Invite
-        </button>
-      </form>
-      {addInvite.isError ? (
-        <p style={{ fontSize: 13, color: "var(--danger)", margin: "8px 0 0" }}>{(addInvite.error as Error).message}</p>
-      ) : added ? (
-        <p style={{ fontSize: 13, color: "var(--success)", margin: "8px 0 0" }}>Invited {added}.</p>
-      ) : null}
-      {stats ? (
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 0" }} className="tabular">
-          {stats.total} invited · {stats.redeemed} joined
-        </p>
-      ) : null}
-    </Section>
   );
 }
 

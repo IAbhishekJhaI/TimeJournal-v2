@@ -163,9 +163,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         })),
       );
       await refreshCount();
-      void flush();
+      // Note: we intentionally do NOT flush here. Paints accumulate in the
+      // durable IndexedDB queue and are sent to the DB in one batched pass only
+      // when the user presses "Upload" (or automatically on reconnect / next
+      // app load — see the effect below — as safety nets so nothing is lost).
     },
-    [qc, flush, refreshCount],
+    [qc, refreshCount],
   );
 
   // Init: read connectivity, drain any queue persisted from a previous

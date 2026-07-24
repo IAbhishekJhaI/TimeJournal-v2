@@ -60,15 +60,6 @@ export const api = {
   exportNow: (): Promise<DrainResponse> =>
     apiFetch<DrainResponse>("/export/sheet", { method: "POST" }),
 
-  getInviteStats: (): Promise<{ total: number; redeemed: number }> =>
-    apiFetch<{ total: number; redeemed: number }>("/invites"),
-
-  addInvite: (email: string): Promise<boolean> =>
-    apiFetch<{ added: boolean }>("/invites", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    }).then((r) => r.added),
-
   // Multipart upload — can't use apiFetch (must not set a JSON content-type;
   // the browser sets the multipart boundary itself).
   importXlsx: async (file: File): Promise<ImportResult> => {

@@ -1,20 +1,16 @@
+import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { resolveUserId } from "@/lib/api/provision";
 
 /**
- * Server-component auth guard. Returns the authenticated Supabase user, or
- * redirects to /login. The session cookie is kept fresh by proxy.ts; this only
- * reads it (mirrors requireUser() on the API side).
+ * Server-component auth guard. Returns the internal user id, or redirects to
+ * the Clerk sign-in page.
  */
 export async function requireUserOrRedirect() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
+  const { userId: clerkId } = await auth();
+  if (!clerkId) {
+    redirect("/sign-in");
   }
-
-  return user;
+  const id = await resolveUserId(clerkId);
+  return { id };
 }
