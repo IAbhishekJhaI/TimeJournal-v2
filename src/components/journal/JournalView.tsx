@@ -217,11 +217,15 @@ export function JournalView() {
   const brushCat = brush && brush !== "erase" ? categoriesById.get(brush) ?? null : null;
   const brushValid = brush === "erase" || brushCat !== null;
 
-  /** A tap/drag on slots: paint with the current brush, or open the picker. */
-  function activate(indices: number[], anchor: { x: number; y: number }) {
+  /**
+   * A tap/drag on slots: paint with the current brush. With no brush selected,
+   * mobile taps open the picker; desktop clicks do nothing (suppressPicker) —
+   * the brush is set from the right-side palette or keyboard code entry.
+   */
+  function activate(indices: number[], anchor: { x: number; y: number }, opts?: { suppressPicker?: boolean }) {
     if (indices.length === 0) return;
     if (!brushValid) {
-      setPicker({ x: anchor.x, y: anchor.y });
+      if (!opts?.suppressPicker) setPicker({ x: anchor.x, y: anchor.y });
       return;
     }
     const catId = brush === "erase" ? null : (brush as string);
@@ -333,7 +337,7 @@ export function JournalView() {
                 brush={brush}
                 onSetBrush={setBrush}
                 onFill={fill}
-                onPickFor={activate}
+                onPickFor={(indices, anchor) => activate(indices, anchor, { suppressPicker: true })}
                 onOpenNote={(index) => setNoteIndex(index)}
               />
             </div>
