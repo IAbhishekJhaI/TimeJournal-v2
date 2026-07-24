@@ -42,6 +42,9 @@ export function DesktopGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState<number>(currentIndex ?? 0);
+  // No slot is selected until the user chooses one (click, or first arrow key).
+  // Until then the cursor ring is hidden and the grid doesn't auto-scroll.
+  const [interacted, setInteracted] = useState(false);
   const [anchor, setAnchor] = useState<number | null>(null);
   const [buffer, setBuffer] = useState("");
   const [drag, setDrag] = useState<{ start: number; end: number } | null>(null);
@@ -85,7 +88,9 @@ export function DesktopGrid({
   }
 
   // Keep the cursor slot in view as it moves, and reveal one row below it.
+  // Only once the user has actually chosen a slot — never auto-scroll on load.
   useEffect(() => {
+    if (!interacted) return;
     const grid = gridRef.current;
     if (!grid) return;
     const cur = grid.querySelector(`[data-index="${cursor}"]`) as HTMLElement | null;
@@ -94,9 +99,22 @@ export function DesktopGrid({
     ) as HTMLElement | null;
     cur?.scrollIntoView({ block: "nearest" });
     below?.scrollIntoView({ block: "nearest" });
-  }, [cursor]);
+  }, [cursor, interacted]);
 
   function onKeyDown(e: React.KeyboardEvent) {
+    const isArrow =
+      e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight";
+    // Nothing is selected yet: the first arrow key just reveals the cursor at
+    // the current time slot (without moving); other keys are ignored until the
+    // user has picked a slot to work from.
+    if (!interacted) {
+      if (isArrow) {
+        e.preventDefault();
+        setInteracted(true);
+        setCursor(currentIndex ?? 0);
+      }
+      return;
+    }
     switch (e.key) {
       case "ArrowUp": e.preventDefault(); return e.shiftKey ? shiftMove(-SLOTS_PER_HOUR) : moveCursor(-SLOTS_PER_HOUR, false);
       case "ArrowDown": e.preventDefault(); return e.shiftKey ? shiftMove(SLOTS_PER_HOUR) : moveCursor(SLOTS_PER_HOUR, false);
@@ -159,6 +177,7 @@ export function DesktopGrid({
   function onPointerDown(index: number, e: React.PointerEvent) {
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     gridRef.current?.focus();
+    setInteracted(true); // clicking a slot chooses it as the cursor
     setCursor(index);
     setAnchor(null);
     setBuffer("");
@@ -206,7 +225,7 @@ export function DesktopGrid({
                 const entry = entriesByKey.get(cellKey(cell.day, cell.slot));
                 const cat = entry ? categoriesById.get(entry.categoryId) : undefined;
                 const fill = cat?.color;
-                const isCursor = index === cursor;
+                const isCursor = interacted && index === cursor;
                 const inSel = anchor !== null && index >= selLo && index <= selHi;
                 const inDrag = index >= dragLo && index <= dragHi;
                 const isCurrent = index === currentIndex;
@@ -262,7 +281,11 @@ export function DesktopGrid({
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
         <span>
-          Cursor <span className="tabular" style={{ color: "var(--text-secondary)" }}>{slotTimeLabel(cursorCell.slot)}</span>
+          {interacted ? (
+            <>Cursor <span className="tabular" style={{ color: "var(--text-secondary)" }}>{slotTimeLabel(cursorCell.slot)}</span></>
+          ) : (
+            "Click a slot to start"
+          )}
         </span>
         {buffer ? (
           <span style={{ color: bufferMatches ? "var(--success)" : "var(--danger)", fontWeight: 500 }}>
