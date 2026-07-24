@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, CloudOff, Eraser, Palette, RadioTower, RefreshCw, Redo2, Undo2, UploadCloud } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, CloudOff, Eraser, Palette, RadioTower, RefreshCw, Redo2, Undo2, UploadCloud } from "lucide-react";
 import { useCategories, useEntries, useProfile } from "@/lib/client/hooks";
 import { useSync } from "@/lib/client/sync";
 import { useMediaQuery } from "@/lib/client/useMediaQuery";
@@ -287,12 +287,6 @@ export function JournalView() {
               <RadioTower size={13} /> Live
             </button>
           ) : null}
-          <UploadControl
-            online={online}
-            pendingCount={pendingCount}
-            syncing={syncing}
-            onUpload={() => void flush()}
-          />
           {undoStack.length > 0 ? (
             <IconBtn label="Undo last change" onClick={undo}><Undo2 size={17} /></IconBtn>
           ) : null}
@@ -336,6 +330,8 @@ export function JournalView() {
                 categories={categories ?? []}
                 currentIndex={currentIndex}
                 conflictKeys={conflictKeys}
+                brush={brush}
+                onSetBrush={setBrush}
                 onFill={fill}
                 onPickFor={activate}
                 onOpenNote={(index) => setNoteIndex(index)}
@@ -385,6 +381,14 @@ export function JournalView() {
           {brush === "erase" ? <Eraser size={20} /> : brushCat ? brushCat.code : <Palette size={22} />}
         </button>
       ) : null}
+
+      <UploadButton
+        isDesktop={isDesktop}
+        online={online}
+        pendingCount={pendingCount}
+        syncing={syncing}
+        onUpload={() => void flush()}
+      />
 
       {picker ? (
         <CategoryPicker
@@ -446,50 +450,77 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
   );
 }
 
-function UploadControl({
+/**
+ * Fixed bottom upload control, sitting alongside the category FAB. Red while
+ * changes are queued (press to send), amber while a batch is uploading, green
+ * once everything is in the DB. Offline with a queue shows red too — pressing
+ * is a no-op until reconnect, when it flushes automatically.
+ */
+function UploadButton({
+  isDesktop,
   online,
   pendingCount,
   syncing,
   onUpload,
 }: {
+  isDesktop: boolean;
   online: boolean;
   pendingCount: number;
   syncing: boolean;
   onUpload: () => void;
 }) {
-  // Offline: can't upload now — changes are queued and go up on reconnect.
-  if (!online) {
-    return (
-      <span
-        title="You're offline — changes are saved locally and will upload when you reconnect."
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: "var(--warning)", border: "1px solid var(--border)" }}
-      >
-        <CloudOff size={12} />
-        {`Offline${pendingCount ? ` · ${pendingCount}` : ""}`}
-      </span>
-    );
-  }
-  // Upload in flight.
+  const hasPending = pendingCount > 0;
+
+  let bg: string;
+  let icon: React.ReactNode;
+  let label: string;
+  let disabled = false;
+
   if (syncing) {
-    return (
-      <span
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, padding: "4px 8px", borderRadius: 20, background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-      >
-        <RefreshCw size={12} className="tj-spin" /> Uploading…
-      </span>
-    );
+    bg = "var(--warning)"; // amber — a batch is uploading
+    icon = <RefreshCw size={22} className="tj-spin" />;
+    label = "Uploading changes…";
+    disabled = true;
+  } else if (hasPending) {
+    bg = "var(--danger)"; // red — changes waiting to be uploaded
+    icon = online ? <UploadCloud size={22} /> : <CloudOff size={22} />;
+    label = online
+      ? `Upload ${pendingCount} pending change${pendingCount === 1 ? "" : "s"} (Cmd/Ctrl+S)`
+      : `${pendingCount} change${pendingCount === 1 ? "" : "s"} waiting — offline`;
+    disabled = !online;
+  } else {
+    bg = "var(--success)"; // green — everything is in the database
+    icon = <Check size={22} />;
+    label = "All changes uploaded";
+    disabled = true;
   }
-  // Nothing queued — everything is already in the DB.
-  if (pendingCount === 0) return null;
-  // Pending changes waiting to be sent: the explicit upload button.
+
   return (
     <button
       onClick={onUpload}
-      aria-label={`Upload ${pendingCount} change${pendingCount === 1 ? "" : "s"} to the database`}
-      title="Send your pending changes to the database (Cmd/Ctrl+S)"
-      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 20, background: "var(--accent)", color: "var(--accent-contrast)", border: "none", cursor: "pointer" }}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      style={{
+        position: "fixed",
+        right: 16,
+        bottom: isDesktop ? 16 : "calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px)",
+        width: 56,
+        height: 56,
+        borderRadius: "50%",
+        border: "3px solid var(--bg)",
+        background: bg,
+        color: "#ffffff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: disabled ? "default" : "pointer",
+        zIndex: 45,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+        transition: "background 0.2s ease",
+      }}
     >
-      <UploadCloud size={14} /> Upload {pendingCount}
+      {icon}
     </button>
   );
 }

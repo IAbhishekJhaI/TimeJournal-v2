@@ -1,12 +1,13 @@
 "use client";
 
 import type React from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Category, TimeEntry } from "@/lib/api/types";
 import { onColor } from "@/lib/color";
 import { hourLabel, SLOTS_PER_HOUR, slotTimeLabel } from "@/lib/slots";
 import { cellKey, type Cell } from "@/lib/journalWindow";
+import type { Brush } from "./DesktopPalette";
 
 interface Props {
   cells: Cell[];
@@ -15,6 +16,8 @@ interface Props {
   categories: Category[];
   currentIndex: number | null;
   conflictKeys: Set<string>;
+  brush: Brush; // current palette brush (kept in sync with typed codes)
+  onSetBrush: (brush: Brush) => void;
   onFill: (indices: number[], categoryId: string | null) => void; // keyboard direct-fill
   onPickFor: (indices: number[], anchor: { x: number; y: number }) => void; // pointer / no-code
   onOpenNote: (index: number) => void;
@@ -31,6 +34,8 @@ export function DesktopGrid({
   categories,
   currentIndex,
   conflictKeys,
+  brush,
+  onSetBrush,
   onFill,
   onPickFor,
   onOpenNote,
@@ -60,17 +65,50 @@ export function DesktopGrid({
     setCursor(clamp(cursor + delta));
   }
 
+  // Resolve the current palette brush to a paintable target. "erase" paints
+  // null (clears); a valid category id paints that category; anything else
+  // (no brush chosen) is not paintable, so shift+arrow falls back to selecting.
+  const brushCat = brush && brush !== "erase" ? categoriesById.get(brush) : undefined;
+  const brushPaintable = brush === "erase" || Boolean(brushCat);
+  const brushFillId = brush === "erase" ? null : brushCat ? (brush as string) : null;
+
+  /** Shift+arrow: fill every slot traversed on this step with the brush. */
+  function shiftMove(delta: number) {
+    if (!brushPaintable) {
+      moveCursor(delta, true); // no brush yet — just extend the selection
+      return;
+    }
+    if (anchor === null) setAnchor(cursor);
+    const next = clamp(cursor + delta);
+    onFill(rangeIdx(cursor, next), brushFillId);
+    setCursor(next);
+  }
+
+  // Keep the cursor slot in view as it moves, and reveal one row below it.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const cur = grid.querySelector(`[data-index="${cursor}"]`) as HTMLElement | null;
+    const below = grid.querySelector(
+      `[data-index="${clamp(cursor + SLOTS_PER_HOUR)}"]`,
+    ) as HTMLElement | null;
+    cur?.scrollIntoView({ block: "nearest" });
+    below?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
   function onKeyDown(e: React.KeyboardEvent) {
     switch (e.key) {
-      case "ArrowUp": e.preventDefault(); return moveCursor(-SLOTS_PER_HOUR, e.shiftKey);
-      case "ArrowDown": e.preventDefault(); return moveCursor(SLOTS_PER_HOUR, e.shiftKey);
-      case "ArrowLeft": e.preventDefault(); return moveCursor(-1, e.shiftKey);
-      case "ArrowRight": e.preventDefault(); return moveCursor(1, e.shiftKey);
+      case "ArrowUp": e.preventDefault(); return e.shiftKey ? shiftMove(-SLOTS_PER_HOUR) : moveCursor(-SLOTS_PER_HOUR, false);
+      case "ArrowDown": e.preventDefault(); return e.shiftKey ? shiftMove(SLOTS_PER_HOUR) : moveCursor(SLOTS_PER_HOUR, false);
+      case "ArrowLeft": e.preventDefault(); return e.shiftKey ? shiftMove(-1) : moveCursor(-1, false);
+      case "ArrowRight": e.preventDefault(); return e.shiftKey ? shiftMove(1) : moveCursor(1, false);
       case "Enter": {
         e.preventDefault();
         if (buffer) {
           const id = codeToId.get(buffer.toLowerCase());
-          if (id) { onFill(selection, id); setBuffer(""); setAnchor(null); }
+          // Fill the selection AND adopt this category as the palette brush, so
+          // a following shift+arrow paints neighbours with the same code.
+          if (id) { onFill(selection, id); onSetBrush(id); setBuffer(""); setAnchor(null); }
         } else {
           onPickFor(selection, anchorForIndex(cursor));
           setAnchor(null);
@@ -80,13 +118,20 @@ export function DesktopGrid({
       case "Backspace":
       case "Delete":
         e.preventDefault();
-        onFill(selection, null);
-        setAnchor(null);
+        // While typing a code, backspace edits the buffer instead of clearing
+        // the slot. With no buffer, it clears the selected slot(s).
+        if (buffer) {
+          setBuffer((b) => b.slice(0, -1));
+        } else {
+          onFill(selection, null);
+          setAnchor(null);
+        }
         return;
       case "Escape":
         e.preventDefault();
-        setAnchor(null);
-        setBuffer("");
+        // Cancel an in-progress code first; a second Escape drops the selection.
+        if (buffer) setBuffer("");
+        else setAnchor(null);
         return;
       default:
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && /\S/.test(e.key)) {
@@ -143,7 +188,7 @@ export function DesktopGrid({
         ref={gridRef}
         role="grid"
         tabIndex={0}
-        aria-label="Day grid — arrow keys to move, type a code then Enter to fill"
+        aria-label="Day grid — arrow keys to move, type a code then Enter to fill, hold shift and arrow to batch-fill with the current brush"
         onKeyDown={onKeyDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -224,7 +269,7 @@ export function DesktopGrid({
             code: {buffer}{bufferMatches ? " ✓ Enter to fill" : " — no match"}
           </span>
         ) : (
-          <span>Type a code + Enter · arrows move · shift+arrows select · ⌫ clear · double-click for note</span>
+          <span>Type a code + Enter · arrows move · shift+arrows batch-fill · ⌫ delete code / clear slot · Esc cancel · double-click for note</span>
         )}
       </div>
     </div>

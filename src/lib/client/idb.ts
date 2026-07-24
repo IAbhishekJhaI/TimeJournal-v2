@@ -11,6 +11,11 @@ export interface PendingWrite {
   slot: number;
   categoryId: string | null; // null = clear the slot
   note: string | null;
+  // The slot's last server-known value when the user first edited it, preserved
+  // across local re-edits. Used to drop no-op writes: if a slot is changed and
+  // then reverted to this value, there's nothing to upload.
+  baseCategoryId: string | null;
+  baseNote: string | null;
   // The server updatedAt this slot had when the user first edited it offline —
   // the baseline for conflict detection. Preserved across local re-edits.
   clientUpdatedAt: string | null;

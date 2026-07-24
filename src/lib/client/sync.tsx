@@ -139,29 +139,57 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const enqueue = useCallback(
     async (day: string, items: PaintInput[]) => {
+      // Snapshot the pre-optimistic cache: for a slot's FIRST edit this is the
+      // server-known value, i.e. the baseline a later revert is compared against.
+      const cached = qc.getQueryData<TimeEntry[]>(entriesKey(day)) ?? [];
+      const cachedBySlot = new Map(cached.map((e) => [e.slot, e]));
+
       applyOptimistic(qc, day, items);
       const now = Date.now();
 
-      // Preserve the conflict baseline across offline re-edits: if this slot is
-      // already queued, keep the updatedAt captured on the FIRST edit rather
-      // than the optimistic timestamp from an intermediate local change.
+      // Existing queued writes for this day carry the original baseline forward
+      // across re-edits (both the conflict updatedAt and the value baseline).
       const existing = await allPending();
-      const baselineBySlot = new Map<number, string | null>();
-      for (const w of existing) if (w.day === day) baselineBySlot.set(w.slot, w.clientUpdatedAt);
+      const pendingBySlot = new Map<number, PendingWrite>();
+      for (const w of existing) if (w.day === day) pendingBySlot.set(w.slot, w);
 
-      await putPending(
-        items.map((i) => ({
-          key: pendingKey(day, i.slot),
+      const toPut: PendingWrite[] = [];
+      const toDelete: string[] = [];
+
+      for (const i of items) {
+        const key = pendingKey(day, i.slot);
+        const prev = pendingBySlot.get(i.slot);
+        const cachedEntry = cachedBySlot.get(i.slot);
+
+        const baseCategoryId = prev ? prev.baseCategoryId : (cachedEntry?.categoryId ?? null);
+        const baseNote = prev ? prev.baseNote : (cachedEntry?.note ?? null);
+        const clientUpdatedAt = prev ? prev.clientUpdatedAt : (i.clientUpdatedAt ?? null);
+
+        const nextCategoryId = i.categoryId;
+        const nextNote = i.note ?? null;
+
+        // Net no-op: the slot is back to its server-known value. Drop any queued
+        // write so it neither counts as pending nor gets uploaded.
+        if (nextCategoryId === baseCategoryId && nextNote === baseNote) {
+          if (prev) toDelete.push(key);
+          continue;
+        }
+
+        toPut.push({
+          key,
           day,
           slot: i.slot,
-          categoryId: i.categoryId,
-          note: i.note ?? null,
-          clientUpdatedAt: baselineBySlot.has(i.slot)
-            ? (baselineBySlot.get(i.slot) ?? null)
-            : (i.clientUpdatedAt ?? null),
+          categoryId: nextCategoryId,
+          note: nextNote,
+          baseCategoryId,
+          baseNote,
+          clientUpdatedAt,
           queuedAt: now,
-        })),
-      );
+        });
+      }
+
+      if (toDelete.length > 0) await deletePending(toDelete);
+      if (toPut.length > 0) await putPending(toPut);
       await refreshCount();
       // Note: we intentionally do NOT flush here. Paints accumulate in the
       // durable IndexedDB queue and are sent to the DB in one batched pass only
