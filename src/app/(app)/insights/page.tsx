@@ -4,6 +4,7 @@ import type React from "react";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAnalytics } from "@/lib/client/hooks";
+import { SavedQueries } from "@/components/insights/SavedQueries";
 import type { GroupBy, SummaryBucket } from "@/lib/api/types";
 
 type Period = "day" | "week" | "month" | "year";
@@ -103,6 +104,8 @@ export default function InsightsPage() {
           ))}
         </div>
       )}
+
+      <SavedQueries period={period} anchor={anchor} />
     </div>
   );
 }

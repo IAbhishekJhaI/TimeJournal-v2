@@ -2,7 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { CategoryCreate, CategoryReorder, CategoryUpdate, GroupBy, MeUpdate } from "@/lib/api/types";
+import type {
+  CategoryCreate,
+  CategoryReorder,
+  CategoryUpdate,
+  GroupBy,
+  MeUpdate,
+  SavedQueryCreate,
+  SavedQueryUpdate,
+} from "@/lib/api/types";
 
 export function useAnalytics(
   period: "day" | "week" | "month" | "year",
@@ -97,6 +105,40 @@ export function useEntries(day: string) {
 export function useQuicklogParse() {
   return useMutation({
     mutationFn: ({ text, day }: { text: string; day?: string }) => api.parseQuicklog(text, day),
+  });
+}
+
+export function useSavedQueries() {
+  return useQuery({ queryKey: ["savedQueries"], queryFn: api.getSavedQueries });
+}
+
+function useInvalidateSavedQueries() {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ queryKey: ["savedQueries"] });
+}
+
+export function useCreateSavedQuery() {
+  const invalidate = useInvalidateSavedQueries();
+  return useMutation({
+    mutationFn: (body: SavedQueryCreate) => api.createSavedQuery(body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateSavedQuery() {
+  const invalidate = useInvalidateSavedQueries();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: SavedQueryUpdate }) =>
+      api.updateSavedQuery(id, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteSavedQuery() {
+  const invalidate = useInvalidateSavedQueries();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteSavedQuery(id),
+    onSuccess: invalidate,
   });
 }
 

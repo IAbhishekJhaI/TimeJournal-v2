@@ -17,6 +17,11 @@ import type {
   Profile,
   ProfileResponse,
   QuicklogParseResponse,
+  SavedQuery,
+  SavedQueriesResponse,
+  SavedQueryCreate,
+  SavedQueryResponse,
+  SavedQueryUpdate,
   TimeEntry,
 } from "@/lib/api/types";
 
@@ -122,6 +127,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(day ? { text, day } : { text }),
     }),
+
+  getSavedQueries: (): Promise<SavedQuery[]> =>
+    apiFetch<SavedQueriesResponse>("/queries").then((r) => r.queries),
+
+  createSavedQuery: (body: SavedQueryCreate): Promise<SavedQuery> =>
+    apiFetch<SavedQueryResponse>("/queries", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }).then((r) => r.query),
+
+  updateSavedQuery: (id: string, body: SavedQueryUpdate): Promise<SavedQuery> =>
+    apiFetch<SavedQueryResponse>(`/queries/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }).then((r) => r.query),
+
+  deleteSavedQuery: (id: string): Promise<void> =>
+    apiFetch<{ ok: true }>(`/queries/${id}`, { method: "DELETE" }).then(() => undefined),
 
   getAnalytics: (
     period: "day" | "week" | "month" | "year",
