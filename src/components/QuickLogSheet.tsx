@@ -41,7 +41,7 @@ function rangeLabel(r: Range): string {
 export function QuickLogSheet({ open, onClose }: Props) {
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const parse = useQuicklogParse();
-  const { enqueue } = useSync();
+  const { enqueue, flush } = useSync();
   const { data: categories } = useCategories();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -126,7 +126,16 @@ export function QuickLogSheet({ open, onClose }: Props) {
     for (let s = range.startSlot; s <= range.endSlot; s++) {
       items.push({ slot: s, categoryId: selCat });
     }
-    await enqueue(parsed.day, items);
+    const day = parsed.day;
+    await enqueue(day, items);
+    // Quick-log is a deliberate commit (unlike incremental painting, which
+    // batches behind the Upload button), so push it to the DB immediately.
+    // flush() is a no-op offline — the writes stay queued and sync on reconnect.
+    await flush();
+    // Show the result: the logged range may be outside the rolling 24h view
+    // (e.g. a future time), so ask the journal to pin that day, where all 96
+    // slots (including future ones) are visible.
+    window.dispatchEvent(new CustomEvent("tj:view-day", { detail: { day } }));
     handleClose();
   }
 

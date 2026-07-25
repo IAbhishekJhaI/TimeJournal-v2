@@ -36,6 +36,17 @@ export function JournalView() {
 
   // Default view is the rolling last-24-hours window; the calendar can pin a day.
   const [view, setView] = useState<View>({ mode: "live" });
+
+  // Quick-log (which can target times outside the rolling window) asks us to
+  // pin the day it wrote to, so the freshly-logged slots are actually visible.
+  useEffect(() => {
+    const onViewDay = (e: Event) => {
+      const day = (e as CustomEvent<{ day: string }>).detail?.day;
+      if (day) setView({ mode: "day", day });
+    };
+    window.addEventListener("tj:view-day", onViewDay);
+    return () => window.removeEventListener("tj:view-day", onViewDay);
+  }, []);
   const win = useMemo(
     () =>
       view.mode === "live"

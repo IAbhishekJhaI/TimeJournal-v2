@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
@@ -12,6 +13,13 @@ export const metadata: Metadata = {
   description: "Log your time, 15 minutes at a time.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "TimeJournal" },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
@@ -29,6 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <html lang="en">
         <body className={inter.className}>
           <Providers>{children}</Providers>
+          <ServiceWorkerRegistrar />
         </body>
       </html>
     </ClerkProvider>
