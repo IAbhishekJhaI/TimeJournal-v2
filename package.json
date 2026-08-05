@@ -12,6 +12,7 @@
     "db:studio": "drizzle-kit studio",
     "import:xlsx": "tsx scripts/import-xlsx.ts",
     "db:check": "tsx scripts/db-check.ts",
+    "purge:user": "tsx scripts/purge-user.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -43,3 +43,6 @@ next-env.d.ts
 # markdown docs (kept local; README stays tracked)
 *.md
 !README.md
+
+/scripts/purge-user.ts
+

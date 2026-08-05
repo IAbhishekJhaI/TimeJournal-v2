@@ -27,6 +27,28 @@ const PRESET_COLORS = [
   "#3b82f6", "#6366f1", "#64748b", "#78716c",
 ];
 
+const HEX_RE = /^#[0-9a-f]{6}$/;
+const PRESET_SET = new Set(PRESET_COLORS.map((c) => c.toLowerCase()));
+
+/**
+ * Custom colours already in use across the user's categories (anything not in
+ * PRESET_COLORS), plus the hex currently being typed — so a colour you invent
+ * for one category becomes a reusable swatch for the next.
+ */
+function customSwatches(cats: Category[], current: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (raw: string | null | undefined) => {
+    const hex = (raw ?? "").trim().toLowerCase();
+    if (!HEX_RE.test(hex) || PRESET_SET.has(hex) || seen.has(hex)) return;
+    seen.add(hex);
+    out.push(hex);
+  };
+  cats.forEach((c) => push(c.color));
+  push(current);
+  return out;
+}
+
 interface TreeNode extends Category {
   children: TreeNode[];
 }
@@ -250,6 +272,11 @@ function EditSheet({
     (c) => !c.parentId && !c.archived && !excluded.has(c.id),
   );
 
+  const customColors = useMemo(
+    () => customSwatches(allCategories, color),
+    [allCategories, color],
+  );
+
   const validHex = /^#[0-9a-fA-F]{6}$/.test(color);
   const canSave = code.trim().length > 0 && name.trim().length > 0 && validHex && !busy;
 
@@ -331,16 +358,16 @@ function EditSheet({
           <Field label="Color">
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
               {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  aria-label={c}
-                  onClick={() => setColor(c)}
-                  style={{
-                    width: 26, height: 26, borderRadius: 6, background: c, border: "none",
-                    outline: color.toLowerCase() === c ? "2px solid var(--text)" : "1px solid var(--border)",
-                    outlineOffset: 1,
-                  }}
+                <Swatch key={c} color={c} selected={color.toLowerCase() === c} onPick={setColor} />
+              ))}
+              {customColors.length > 0 ? (
+                <span
+                  aria-hidden
+                  style={{ width: 1, alignSelf: "stretch", background: "var(--border)", margin: "0 2px" }}
                 />
+              ) : null}
+              {customColors.map((c) => (
+                <Swatch key={c} color={c} selected={color.toLowerCase() === c} onPick={setColor} />
               ))}
             </div>
             <input value={color} onChange={(e) => setColor(e.target.value)} placeholder="#3b82f6" style={{ ...input, width: 120, borderColor: validHex ? "var(--border-strong)" : "var(--danger)" }} />
@@ -378,6 +405,30 @@ function findNode(nodes: TreeNode[], id: string): TreeNode | null {
     if (found) return found;
   }
   return null;
+}
+
+function Swatch({
+  color,
+  selected,
+  onPick,
+}: {
+  color: string;
+  selected: boolean;
+  onPick: (c: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={color}
+      aria-pressed={selected}
+      onClick={() => onPick(color)}
+      style={{
+        width: 26, height: 26, borderRadius: 6, background: color, border: "none",
+        outline: selected ? "2px solid var(--text)" : "1px solid var(--border)",
+        outlineOffset: 1,
+      }}
+    />
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
