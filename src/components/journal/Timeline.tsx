@@ -19,6 +19,34 @@ interface Props {
 }
 
 const LONG_PRESS_MS = 450;
+/** Touch: hold this long without moving to take the gesture over for range-select. */
+const HOLD_MS = 350;
+/** Touch travel (px) before we concede the gesture to the browser as a scroll. */
+const MOVE_TOLERANCE = 8;
+/** How long the anchor slot pulses when range mode engages. */
+const CUE_MS = 220;
+
+/**
+ * One in-flight pointer gesture.
+ *
+ * Touch starts passive: the page scrolls normally and we only claim the
+ * gesture once the finger has stayed put for HOLD_MS. Mouse/pen keep the
+ * original behaviour (drag-select from pointerdown) since they never scroll
+ * by dragging.
+ */
+type Gesture = {
+  pointerId: number;
+  touch: boolean;
+  index: number;
+  x: number;
+  y: number;
+  /** We own the gesture and are painting a range. */
+  ranging: boolean;
+  /** The range moved off the anchor slot at least once. */
+  moved: boolean;
+  /** Conceded to the browser (a scroll); ignore everything until release. */
+  dead: boolean;
+};
 
 export function Timeline({
   cells,
@@ -30,9 +58,13 @@ export function Timeline({
   onLongPress,
 }: Props) {
   const currentRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{ start: number; end: number } | null>(null);
+  const [cueIndex, setCueIndex] = useState<number | null>(null);
   const centered = useRef(false);
-  const longPressTimer = useRef<number | null>(null);
+  const timer = useRef<number | null>(null);
+  const cueTimer = useRef<number | null>(null);
+  const gesture = useRef<Gesture | null>(null);
   const longPressed = useRef(false);
 
   useEffect(() => {
@@ -42,14 +74,60 @@ export function Timeline({
     }
   }, []);
 
-  function clearLongPress() {
-    if (longPressTimer.current !== null) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+  /**
+   * Suppress scrolling once range mode is live. `touch-action` is latched by
+   * the browser at gesture start so it can't be flipped mid-gesture, and
+   * React's onTouchMove is passive — hence a manual non-passive listener.
+   */
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const block = (e: TouchEvent) => {
+      if (gesture.current?.ranging) e.preventDefault();
+    };
+    el.addEventListener("touchmove", block, { passive: false });
+    return () => el.removeEventListener("touchmove", block);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+      if (cueTimer.current !== null) clearTimeout(cueTimer.current);
+    },
+    [],
+  );
+
+  function clearTimer() {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }
+
+  function endGesture() {
+    clearTimer();
+    gesture.current = null;
+    setDrag(null);
+  }
+
+  function pulse(index: number) {
+    setCueIndex(index);
+    if (cueTimer.current !== null) clearTimeout(cueTimer.current);
+    cueTimer.current = window.setTimeout(() => setCueIndex(null), CUE_MS);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(10);
+      } catch {
+        /* not supported / blocked — the visual pulse still fires */
+      }
     }
   }
 
   function indexFromPoint(x: number, y: number): number | null {
+    // Ignore drags that wander outside the grid's horizontal band, so a
+    // sideways fling doesn't keep extending the selection to the row edge.
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (rect && (x < rect.left || x > rect.right)) return null;
     const el = document.elementFromPoint(x, y) as HTMLElement | null;
     const holder = el?.closest("[data-index]") as HTMLElement | null;
     if (!holder) return null;
@@ -57,34 +135,108 @@ export function Timeline({
     return Number.isNaN(n) ? null : n;
   }
 
+  function capture(pointerId: number) {
+    try {
+      gridRef.current?.setPointerCapture?.(pointerId);
+    } catch {
+      /* capture is best-effort; hit-testing works without it */
+    }
+  }
+
   function onPointerDown(index: number, e: React.PointerEvent) {
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const touch = e.pointerType === "touch";
     longPressed.current = false;
-    setDrag({ start: index, end: index });
-    clearLongPress();
-    longPressTimer.current = window.setTimeout(() => {
-      longPressed.current = true;
-      setDrag(null);
-      onLongPress(index);
-    }, LONG_PRESS_MS);
+    clearTimer();
+    gesture.current = {
+      pointerId: e.pointerId,
+      touch,
+      index,
+      x: e.clientX,
+      y: e.clientY,
+      ranging: !touch,
+      moved: false,
+      dead: false,
+    };
+
+    if (!touch) {
+      // Mouse / pen: select immediately, and hold still to open the note sheet.
+      capture(e.pointerId);
+      setDrag({ start: index, end: index });
+      timer.current = window.setTimeout(() => {
+        longPressed.current = true;
+        endGesture();
+        onLongPress(index);
+      }, LONG_PRESS_MS);
+      return;
+    }
+
+    // Touch: stay passive so the page can scroll. Claim it only after a hold.
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      const g = gesture.current;
+      if (!g || g.dead || g.pointerId !== e.pointerId) return;
+      g.ranging = true;
+      capture(g.pointerId);
+      setDrag({ start: g.index, end: g.index });
+      pulse(g.index);
+    }, HOLD_MS);
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    const g = gesture.current;
+    if (!g || g.dead || g.pointerId !== e.pointerId) return;
+
+    if (!g.ranging) {
+      // Still deciding. Enough travel means the user is scrolling, not holding.
+      const far =
+        Math.abs(e.clientX - g.x) > MOVE_TOLERANCE ||
+        Math.abs(e.clientY - g.y) > MOVE_TOLERANCE;
+      if (far) {
+        clearTimer();
+        g.dead = true;
+        setDrag(null);
+      }
+      return;
+    }
+
     if (!drag) return;
     const index = indexFromPoint(e.clientX, e.clientY);
     if (index !== null && index !== drag.end) {
-      clearLongPress();
+      clearTimer();
+      g.moved = true;
       setDrag({ ...drag, end: index });
     }
   }
 
   function onPointerUp(e: React.PointerEvent) {
-    clearLongPress();
+    const g = gesture.current;
+    clearTimer();
+    gesture.current = null;
+
     if (longPressed.current) {
       longPressed.current = false;
       setDrag(null);
       return;
     }
+    if (!g || g.dead || g.pointerId !== e.pointerId) {
+      setDrag(null);
+      return;
+    }
+
+    // Touch that never reached the hold: a plain tap on one slot.
+    if (g.touch && !g.ranging) {
+      setDrag(null);
+      onPickFor([g.index], { x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    // Held without dragging: open the note sheet for that slot.
+    if (g.touch && !g.moved) {
+      setDrag(null);
+      onLongPress(g.index);
+      return;
+    }
+
     if (!drag) return;
     const lo = Math.min(drag.start, drag.end);
     const hi = Math.max(drag.start, drag.end);
@@ -93,11 +245,22 @@ export function Timeline({
     onPickFor(indices, { x: e.clientX, y: e.clientY });
   }
 
+  function onPointerCancel() {
+    longPressed.current = false;
+    endGesture();
+  }
+
   const pendingLo = drag ? Math.min(drag.start, drag.end) : -1;
   const pendingHi = drag ? Math.max(drag.start, drag.end) : -2;
 
   return (
-    <div style={{ padding: "8px 12px 16px" }} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+    <div
+      ref={gridRef}
+      style={{ padding: "8px 12px 16px" }}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    >
       {Array.from({ length: 24 }).map((_, row) => (
         <div key={row} style={{ display: "flex", alignItems: "center", gap: 8, height: 56 }}>
           <div
@@ -114,6 +277,7 @@ export function Timeline({
               const cat = entry ? categoriesById.get(entry.categoryId) : undefined;
               const isCurrent = index === currentIndex;
               const isPending = index >= pendingLo && index <= pendingHi;
+              const isCue = index === cueIndex;
               const fill = cat?.color;
               const hasNote = Boolean(entry?.note);
               const isConflict = conflictKeys.has(cellKey(cell.day, cell.slot));
@@ -131,7 +295,12 @@ export function Timeline({
                     borderRadius: 8,
                     background: fill ?? "var(--surface-2)",
                     border: fill ? "none" : "1px dashed var(--border-strong)",
-                    boxShadow: isCurrent || isPending ? "0 0 0 2px var(--accent)" : "none",
+                    boxShadow:
+                      isCue
+                        ? "0 0 0 3px var(--accent)"
+                        : isCurrent || isPending
+                          ? "0 0 0 2px var(--accent)"
+                          : "none",
                     color: fill ? onColor(fill) : "var(--text-muted)",
                     display: "flex",
                     alignItems: "center",
@@ -139,8 +308,11 @@ export function Timeline({
                     fontSize: 11,
                     fontWeight: 500,
                     userSelect: "none",
-                    touchAction: "none",
-                    transition: "background 120ms ease-out",
+                    // Vertical scrolling stays with the browser; range mode
+                    // suppresses it via the non-passive touchmove listener.
+                    touchAction: "pan-y",
+                    transform: isCue ? "scale(0.94)" : "none",
+                    transition: "background 120ms ease-out, transform 120ms ease-out",
                   }}
                 >
                   {cat?.code ?? ""}
