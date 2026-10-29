@@ -104,6 +104,65 @@ export async function deletePending(keys: string[]): Promise<void> {
   }
 }
 
+/**
+ * What to do with a slot's stored pending write once `sent` has been uploaded.
+ * `stored` may have been re-edited while the upload was in flight:
+ *  - gone, or holding the value that was sent → the server has it; delete.
+ *  - holding a different value → keep it, rebased onto the sent value (the
+ *    server's value now). clientUpdatedAt is cleared: the server's new
+ *    updatedAt is our own write, so the old baseline would flag a false conflict.
+ */
+export function settleWrite(
+  stored: PendingWrite | undefined,
+  sent: PendingWrite,
+): { action: "delete" } | { action: "keep"; write: PendingWrite } {
+  if (!stored || (stored.categoryId === sent.categoryId && stored.note === sent.note)) {
+    return { action: "delete" };
+  }
+  return {
+    action: "keep",
+    write: {
+      ...stored,
+      baseCategoryId: sent.categoryId,
+      baseNote: sent.note,
+      clientUpdatedAt: null,
+    },
+  };
+}
+
+/**
+ * After an upload succeeds, settle each sent write against what's stored now
+ * (see `settleWrite`) in one transaction. Returns the keys that were kept.
+ */
+export async function settlePending(sent: PendingWrite[]): Promise<string[]> {
+  if (!available() || sent.length === 0) return [];
+  const db = await openDb();
+  try {
+    return await new Promise<string[]>((resolve, reject) => {
+      const kept: string[] = [];
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      for (const w of sent) {
+        const req = store.get(w.key);
+        req.onsuccess = () => {
+          const result = settleWrite(req.result as PendingWrite | undefined, w);
+          if (result.action === "delete") {
+            store.delete(w.key);
+          } else {
+            store.put(result.write);
+            kept.push(w.key);
+          }
+        };
+      }
+      tx.oncomplete = () => resolve(kept);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export async function countPending(): Promise<number> {
   const result = await withStore<number>("readonly", (s) => s.count());
   return (result as number) ?? 0;

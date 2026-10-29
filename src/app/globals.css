@@ -92,6 +92,23 @@ button {
   }
 }
 
+/* Route-loading placeholders. The global reduced-motion rule below flattens
+   the pulse to a static block. */
+.tj-skeleton {
+  background: var(--surface-2);
+  border-radius: 8px;
+  animation: tj-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tj-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* Respect reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   * {
