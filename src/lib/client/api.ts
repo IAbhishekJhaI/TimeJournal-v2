@@ -35,10 +35,52 @@ export class ApiClientError extends Error {
   }
 }
 
+type TokenGetter = () => Promise<string | null>;
+
+let tokenGetter: TokenGetter | null = null;
+
+/** Installed by <ClerkTokenBridge> (providers.tsx) once Clerk is mounted. */
+export function setTokenGetter(fn: TokenGetter | null) {
+  tokenGetter = fn;
+}
+
+// A stuck getToken() must not stall the upload queue; past this we fall back
+// to the session cookie alone.
+export const TOKEN_TIMEOUT_MS = 3_000;
+
+/**
+ * A fresh Clerk session token as a bearer header. The proxy only refreshes an
+ * expired `__session` cookie on GET, so a PUT/POST/PATCH/DELETE sent after the
+ * ~60s token lapses (backgrounded tab, laptop sleep) would 401. Clerk checks
+ * the Authorization header before the cookie, and getToken() mints a new token
+ * when the cached one has expired.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  if (!tokenGetter) return {};
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const token = await Promise.race([
+      tokenGetter(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), TOKEN_TIMEOUT_MS);
+      }),
+    ]);
+    return token ? { authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    headers: {
+      "content-type": "application/json",
+      ...(await authHeaders()),
+      ...init?.headers,
+    },
   });
 
   if (!res.ok) {
@@ -71,7 +113,11 @@ export const api = {
   importXlsx: async (file: File): Promise<ImportResult> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch("/api/import/xlsx", { method: "POST", body: form });
+    const res = await fetch("/api/import/xlsx", {
+      method: "POST",
+      body: form,
+      headers: await authHeaders(),
+    });
     if (!res.ok) {
       let message = `import failed (${res.status})`;
       try {
