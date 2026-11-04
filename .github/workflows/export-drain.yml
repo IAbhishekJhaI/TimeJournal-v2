@@ -3,9 +3,10 @@ name: Drain sheet export outbox
 on:
   schedule:
     # Vercel Hobby cron is daily-only; GitHub Actions is the free way to
-    # get the 15-min cadence ARCHITECTURE.md §8 calls for. Schedules can
-    # drift a few minutes under load — accepted trade-off, see §9.
-    - cron: "*/15 * * * *"
+    # get a sub-daily cadence. Every 3 hours (UTC); the "Export now" button
+    # covers anything more urgent. Schedules can drift a few minutes under
+    # load — accepted trade-off, see ARCHITECTURE.md §9.
+    - cron: "0 */3 * * *"
   workflow_dispatch: {}
 
 jobs:
