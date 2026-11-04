@@ -152,7 +152,7 @@ inventing them.
 ## Google Sheets mirror (optional)
 
 `PUT /api/entries` enqueues a `sheet_outbox` row per touched day.
-`POST /api/export/drain` (guarded by `CRON_SECRET`, called every 15 min by
+`POST /api/export/drain` (guarded by `CRON_SECRET`, called every 3 hours by
 [`.github/workflows/export-drain.yml`](.github/workflows/export-drain.yml)) drains
 all pending rows server-side; `POST /api/export/sheet` does the same for just the
 calling user (the "Export now" button). Set repo secrets `APP_URL` and
